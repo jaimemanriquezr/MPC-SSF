@@ -1,5 +1,5 @@
-# AMMONIA
-multiphAse continuuM Model of slOw saNd fIltrAtion
+# MPC-SSF
+MultiPhase Continuum simulations of Slow Sand Filtration
 
 ## Example
 
