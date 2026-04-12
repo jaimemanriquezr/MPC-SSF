@@ -14,19 +14,19 @@ function bf_line = plotBiofilm(obj, plot_options, t, options)
     end
     switch options.Phase
         case {"Biofilm", "biofilm", "b"}
-            phi = get_volume_fractions(obj).biofilm;
+            phi = getVolumeFractions(obj).Biofilm;
             phi_label = "Biofilm volume fraction $\phi_{\rm b}$";
         case {"Matrix", "matrix", "M"}
-            phi = get_volume_fractions(obj).biofilm_matrix;
+            phi = getVolumeFractions(obj).Matrix;
             phi_label = "Matrix volume fraction $\phi_{\rm M}$";
         case {"Enclosed", "enclosed", "e"}
-            phi = get_volume_fractions(obj).enclosed_suspension;
+            phi = getVolumeFractions(obj).Enclosed;
             phi_label = "Enclosed volume fraction $\phi_{\rm e}$";
     end
 
     ax = options.AxisHandle;
     if isempty(ax)
-        ax = plot.axes(...
+        ax = mpc_axes(...
         AxisParent=options.AxisParent, ...
         YLabel=phi_label, YReverse=true);
         ax.YLim = [-obj.SandFilter.Height, obj.SandFilter.Depth];
@@ -42,14 +42,14 @@ function bf_line = plotBiofilm(obj, plot_options, t, options)
     end
     z = z_f * obj.SandFilter.GridPoints.Centers;
     t = min(t, obj.TimeFinal);
-    frame = find((obj.Frames.time - t) >= 0, 1);
+    frame = find((obj.Frames.Time - t) >= 0, 1);
     if isempty(frame)
-        frame = find(obj.Frames.time > 0, 1, 'last');
+        frame = find(obj.Frames.Time > 0, 1, 'last');
     end
     phi = phi(:, frame);
 
     if isempty(plot_options)
-        bf_line = plot(ax, phi, z);
+        bf_line = plot(ax, phi, z, DisplayName="Biofilm vol. fraction");
     else
         plot_args = namedargs2cell(plot_options);
         bf_line = plot(ax, phi, z, plot_args{:});

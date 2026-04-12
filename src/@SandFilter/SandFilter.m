@@ -90,6 +90,25 @@ classdef SandFilter
                 obj = addGridPoints(obj, intervalNumber+1);
             end
         end
+        
+        function plot(obj, axisHandle)
+            arguments
+                obj SandFilter
+                axisHandle matlab.graphics.axis.Axes = axes(figure());
+            end
+            axisHandle.NextPlot = "add";
+
+            H = obj.Height;
+            B = obj.Depth;
+            % plot(axisHandle, [0, 0], [-H, B], LineStyle="-", Color="k", LineWidth=3.0);
+            z = linspace(-H, B, 1e3);
+            plot(axisHandle, obj.computePorosity(z), z, Color="k", LineWidth=3.0);
+            xlim(axisHandle, [0 1.1]);
+            ylabel(axisHandle, "Depth $z$ [m]", Interpreter="latex", FontSize=20);
+            xlabel(axisHandle, "Porosity $\tilde{\varepsilon}(z)$ [-]", Interpreter="latex", FontSize=20);
+            axisHandle.YDir = "reverse";
+            axis(axisHandle, "square");
+        end
 
         % OVERRIDING FUNCTIONS
         function is_eq = isequal(self, other)
