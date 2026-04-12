@@ -1,7 +1,7 @@
 function p = lookupOrder(obj, components)
     arguments
-        obj MPC.ecological.Reaction
-        components MPC.ecological.Component
+        obj   Reaction
+        components  Component
     end
     names = [components.Name];
 

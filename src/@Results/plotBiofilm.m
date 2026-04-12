@@ -1,6 +1,6 @@
 function bf_line = plotBiofilm(obj, plot_options, t, options)
     arguments
-        obj (1,1) MPC.Results
+        obj (1,1)  Results
         plot_options struct = struct.empty;
         t (1,1) = obj.TimeFinal;
 

@@ -1,6 +1,6 @@
 function epsilon = computePorosity(obj, z)
     arguments
-        obj MPC.SandFilter
+        obj  SandFilter
         z double
     end
     epsilon0 = obj.SandPorosity;

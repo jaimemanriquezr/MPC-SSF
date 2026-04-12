@@ -1,6 +1,6 @@
 function results = simulate(obj, parameters)
 arguments
-    obj MPC.State
+    obj  State
     parameters.InflowConcentrations = []
     parameters.SimulationTime (1,1) {mustBeNumeric} = 1.0;
     parameters.TimeStep (1,1) = 1E-5;
@@ -117,7 +117,7 @@ concFramesFlowing = zeros(length(depthCenters),numFrames, kP + kL);
 %========================================================%
 
 %=================== V. OUTPUT RESULTS ======================%
-results = MPC.Results(filter, model);
+results =  Results(filter, model);
 results.TimeStart = timeStart;
 results.SimulationData.time_final_intended = timeStart + simulationTime;
 results.SimulationData.time = timeStart;

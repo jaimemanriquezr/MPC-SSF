@@ -7,8 +7,8 @@ classdef Model
         OsmosisRate double
         DetachmentFunction function_handle
 
-        Reactions = MPC.ecological.Reaction.empty;
-        CohesionSubModel = MPC.cohesion.CahnHilliardModel()
+        Reactions =   Reaction.empty;
+        CohesionSubModel =    CahnHilliardModel()
     end
 
     properties (Dependent, Hidden)
@@ -26,7 +26,7 @@ classdef Model
     methods
         function obj = Model(input)
             arguments
-                input.Components = MPC.ecological.Component.empty;
+                input.Components =  Component.empty;
                 input.Kappa double = [];
                 input.Zeta0 double = [];
                 input.Zeta1 double = [];
@@ -38,7 +38,7 @@ classdef Model
                 input.OsmosisRate double = 1e-5;
                 input.BiofilmPorosity double = .99;
 
-                input.Reactions = MPC.ecological.Reaction.empty;
+                input.Reactions =   Reaction.empty;
                 input.Preset = string.empty;
             end
             switch input.Preset
@@ -56,18 +56,18 @@ classdef Model
                         end
                     end
                 case {"Lund", "Rosenqvist"}
-                    obj = MPC.presets.modelLund();
+                    obj =  presets.modelLund();
                 otherwise
                     error("Unknown model preset.");
             end
         end
 
         function p = get.Particles(obj)
-            p = obj.Components(arrayfun(@(C)isa(C, 'MPC.ecological.Particle'), obj.Components));
+            p = obj.Components(arrayfun(@(C)isa(C, '  Particle'), obj.Components));
         end
 
         function l = get.Liquids(obj)
-            l = obj.Components(arrayfun(@(C)isa(C, 'MPC.ecological.Liquid'), obj.Components));
+            l = obj.Components(arrayfun(@(C)isa(C, '  Liquid'), obj.Components));
         end
 
         function sigma = get.StoichiometricCoefficients(obj)

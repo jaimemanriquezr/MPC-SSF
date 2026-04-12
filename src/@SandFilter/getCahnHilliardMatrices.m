@@ -1,7 +1,7 @@
 function [convection, diffusion, diffusionMobility] = getCahnHilliardMatrices(filter, model, upwindConvection)
     arguments
-        filter MPC.SandFilter
-        model MPC.Model
+        filter  SandFilter
+        model  Model
         upwindConvection = true
     end
     depthCenters = filter.GridPoints.Centers;

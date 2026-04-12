@@ -1,4 +1,4 @@
-classdef Liquid < MPC.ecological.Component & matlab.mixin.CustomDisplay
+classdef Liquid <  Component & matlab.mixin.CustomDisplay
     methods
         function obj = Liquid(input)
             arguments
@@ -8,7 +8,7 @@ classdef Liquid < MPC.ecological.Component & matlab.mixin.CustomDisplay
                 input.TransportRate double = []
             end
             input_args = namedargs2cell(input);
-            obj = obj@MPC.ecological.Component(input_args{:});
+            obj = obj@ Component(input_args{:});
         end
     end
 
@@ -16,7 +16,7 @@ classdef Liquid < MPC.ecological.Component & matlab.mixin.CustomDisplay
         function displayNonScalarObject(objArray)
             dimStr = matlab.mixin.CustomDisplay.convertDimensionsToString(objArray);
             cName = matlab.mixin.CustomDisplay.getClassNameForHeader(objArray);
-            MPC.ecological.Component.displayHomogeneousNonScalarObject(objArray, dimStr, cName);
+             Component.displayHomogeneousNonScalarObject(objArray, dimStr, cName);
         end
     end
 end

@@ -1,7 +1,7 @@
 classdef State
     properties
-        SandFilter MPC.SandFilter
-        Model MPC.Model
+        SandFilter  SandFilter
+        Model  Model
         
         Time double = 0.0
         GlobalConcentration
@@ -19,8 +19,8 @@ classdef State
     methods
         function obj = State(filter, model)
             arguments
-                filter MPC.SandFilter = MPC.SandFilter()
-                model MPC.Model = MPC.Model()
+                filter  SandFilter =  SandFilter()
+                model  Model =  Model()
             end
             obj.SandFilter = filter;
             obj.Model = model;

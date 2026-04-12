@@ -1,4 +1,4 @@
-function ax = axes(options)
+function ax = mpc_axes(options)
     arguments
         options.AxisHandle = matlab.graphics.axis.Axes.empty;
         options.AxisParent = matlab.ui.Figure.empty;

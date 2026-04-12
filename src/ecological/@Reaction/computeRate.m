@@ -1,6 +1,6 @@
 function mu = computeRate(obj, temperature, options)
     arguments
-        obj MPC.ecological.Reaction
+        obj   Reaction
         temperature double
         options.TemperatureScale = "Celsius";
         options.NominalTemperature = 20;

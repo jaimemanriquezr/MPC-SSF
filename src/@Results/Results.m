@@ -12,8 +12,8 @@ classdef Results
     methods
         function obj = Results(filter,model)
             arguments
-                filter MPC.SandFilter = MPC.SandFilter();
-                model MPC.Model = Model
+                filter  SandFilter =  SandFilter();
+                model  Model = Model
             end
 
             obj.SandFilter = filter;

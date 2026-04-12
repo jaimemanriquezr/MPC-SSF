@@ -27,9 +27,10 @@ classdef SandFilter
     methods
         function obj = SandFilter(input)
             arguments
-                input.domain (1,2) {mustBeNumeric} = [-1 1];
-                input.epsilon (1,1) {mustBeNumeric} = .4;
-                input.delta (1,1) {mustBeNumeric} = 2e-3;
+                input.Height {mustBeNumeric, mustBeScalarOrEmpty} = 1;
+                input.Depth {mustBeNumeric, mustBeScalarOrEmpty} = 1;
+                input.SandPorosity {mustBeNumeric, mustBeScalarOrEmpty} = .4;
+                input.SandRoughness {mustBeNumeric, mustBeScalarOrEmpty} = 5e-3;
                 input.InflowVelocity (1,1) {mustBeNumeric} = 0.3 * 24;
                 input.Temperature (1,1) {mustBeNumeric} = 15 + 273;
                 input.LightIrradiation = @(t) 0.8 * max(sin(2*pi*(t - 13/48)) + 31/50, 0) / (1 + 31/50);

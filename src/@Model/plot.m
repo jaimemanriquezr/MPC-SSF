@@ -1,6 +1,6 @@
 function graphPlot = plot(obj, options)
     arguments
-        obj MPC.Model
+        obj  Model
         options.Layout = 'layered';
         options.LineWidth = 1.5;
         options.EdgeColor = 'k';

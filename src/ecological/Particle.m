@@ -1,4 +1,4 @@
-classdef Particle < MPC.ecological.Component & matlab.mixin.CustomDisplay
+classdef Particle < Component & matlab.mixin.CustomDisplay
     properties
         AttachmentMatrix double = 0.0 % [1/day]
         AttachmentSand double = 0.0 % [1/day]
@@ -17,7 +17,7 @@ classdef Particle < MPC.ecological.Component & matlab.mixin.CustomDisplay
             end
             extra_fields = ["AttachmentSand", "AttachmentMatrix", "Attenuation"];
             input_args = namedargs2cell(rmfield(input, extra_fields));
-            obj = obj@MPC.ecological.Component(input_args{:});
+            obj = obj@ Component(input_args{:});
             for field = extra_fields
                 input_value = input.(field);
                 if ~isempty(input_value)
@@ -31,7 +31,7 @@ classdef Particle < MPC.ecological.Component & matlab.mixin.CustomDisplay
         function displayNonScalarObject(objArray)
             dimStr = matlab.mixin.CustomDisplay.convertDimensionsToString(objArray);
             cName = matlab.mixin.CustomDisplay.getClassNameForHeader(objArray);
-            MPC.ecological.Component.displayHomogeneousNonScalarObject(objArray, dimStr, cName);
+             Component.displayHomogeneousNonScalarObject(objArray, dimStr, cName);
         end
     end
 end
