@@ -2,7 +2,6 @@ function model = modelLund(options)
     arguments
             options.WriteFile = false;
     end
-    import  *
 
     densityParticle = 1.117E+03;
     attenuationParticle = 0.094;
