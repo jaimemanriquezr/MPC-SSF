@@ -19,9 +19,9 @@ classdef Results
             obj.SandFilter = filter;
             obj.Model = model;
             obj.Frames = struct( ...
-                'time', [],...
-                'concentrations',[], ...
-                'velocity',[]);
+                'Time', [],...
+                'Concentrations',[], ...
+                'Velocity',[]);
             obj.TimeStart = 0;
             obj.TimeFinal = 0;
             obj.Flag = "UNINITIATED";
@@ -31,6 +31,9 @@ classdef Results
         function obj = plus(obj1, obj2)
             obj = concatenate(obj1, obj2);
         end
+        
+        phi = getVolumeFractions(obj);
+        plotConcentrations(obj);
 
         function obj = concatenate(obj,new_obj)
             if isequal(obj.Flag,"UNINITIATED")
@@ -45,7 +48,7 @@ classdef Results
 
             if isequal(obj.SandFilter, new_obj.SandFilter) && isequal(obj.Model, new_obj.model)
                 if isequal(obj.TimeFinal, new_obj.time_start)
-                    obj.Frames.time = [obj.Frames.time; new_obj.frames.time(2:end)];
+                    obj.Frames.Time = [obj.Frames.Time; new_obj.frames.time(2:end)];
                     for field = "concentrations"
                         for i = 1:size(obj.Frames.(field),1)
                             for j = 1:size(obj.Frames.(field),2)

@@ -70,7 +70,7 @@ kL = length(model.Liquids);
 densityP = [model.Particles.Density];
 densityL = [model.Liquids.Density];
 
-attachmentRates = [model.Particles.AttachmentRate];
+attachmentRates = [model.Particles.AttachmentSand];
 transportParticleRates = [model.Particles.TransportRate];
 transportLiquidRates = [model.Liquids.TransportRate];
 alpha = [model.Particles.Dispersivity, model.Liquids.Dispersivity];
@@ -383,7 +383,7 @@ disp("Simulation ended.")
 disp("Saving results...")
 
 %====================== VII. OUTPUTS ===================%
-results.Frames.time = timeFrames;
+results.Frames.Time = timeFrames;
 
 concentrations_cell = cell(kP + kL + 1, 3);
 for j = 1:kP
@@ -402,8 +402,8 @@ concentrations_cell{kP + kL + 1, 2} = concFramesWater;
 concentrations_cell{kP + kL + 1, 3} = Inf;
 
 results.Frames.Concentrations = cell2table(concentrations_cell,  ...
-    'VariableNames', {'matrix',  'enclosed',  'flowing'},  ...
-    'rowNames', [results.Model.Particles.Name,  results.Model.Liquids.Name,  'WATER'],  ...
+    'VariableNames', {'Matrix',  'Enclosed',  'Flowing'},  ...
+    'rowNames', [results.Model.Particles.Name,  results.Model.Liquids.Name,  'Water'],  ...
     'DimensionNames', {'Component', 'Volume'});
 results.Frames.Velocity.Biofilm = velFramesBiofilm;
 results.Frames.Velocity.Flowing = velFramesFlowing;

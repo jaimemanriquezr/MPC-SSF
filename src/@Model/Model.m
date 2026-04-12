@@ -63,11 +63,11 @@ classdef Model
         end
 
         function p = get.Particles(obj)
-            p = obj.Components(arrayfun(@(C)isa(C, '  Particle'), obj.Components));
+            p = obj.Components(arrayfun(@(C)isa(C, 'Particle'), obj.Components));
         end
 
         function l = get.Liquids(obj)
-            l = obj.Components(arrayfun(@(C)isa(C, '  Liquid'), obj.Components));
+            l = obj.Components(arrayfun(@(C)isa(C, 'Liquid'), obj.Components));
         end
 
         function sigma = get.StoichiometricCoefficients(obj)
