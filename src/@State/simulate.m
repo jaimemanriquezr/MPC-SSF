@@ -7,6 +7,7 @@ arguments
     parameters.FrameNumber (1,1) {mustBeNumeric} = 200;
     parameters.CloggingFraction (1,1) {mustBeNumeric} = .99;
     parameters.IsUpwinded (1,1) = false;
+    parameters.Quiet = false;
 end
 disp("Loading parameters...")
 filter = obj.SandFilter;
@@ -36,9 +37,16 @@ listK = newlist;
 
 if isempty(parameters.InflowConcentrations)
     inflowConcentrations = zeros(1, length(model.Components));
+elseif isa(parameters.InflowConcentrations, "dictionary")
+    if isa(parameters.InflowConcentrations.keys, "string")
+        inflowConcentrations = lookup(parameters.InflowConcentrations, [model.Components.Name], FallbackValue=0.0);
+    else
+        inflowConcentrations = lookup(parameters.InflowConcentrations, model.Components, FallbackValue=0.0);
+    end
 else
     inflowConcentrations = parameters.InflowConcentrations;
 end
+inflowConcentrations = inflowConcentrations(:).';
 
 %================= I. SAND FILTER PARAMETERS ====================%
 depthCenters = filter.GridPoints.Centers;
@@ -375,7 +383,9 @@ while t < timeStart + simulationTime
         velFramesBiofilm(:, counter, :) = velBiofilm;
         velFramesFlowing(:, counter, :) = velFlowing(2:end-1);
         counter = counter + 1;
-        fprintf("t = %.4e\n", t);
+        if ~parameters.Quiet
+            fprintf("t = %.4e\n", t);
+        end
     end
     %==========================================================%
 end

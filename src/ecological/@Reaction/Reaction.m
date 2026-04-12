@@ -17,7 +17,7 @@ classdef Reaction
         function obj = Reaction(input)
             arguments
                 input.Name string = ""
-                input.NominalRate double = 0.0
+                input.NominalRate double = 1.0
                 input.TemperatureCorrectionFactor double = 1.0;
                 input.Order dictionary = dictionary("", 0);
                 input.HalfSaturationConstants dictionary = dictionary("", 0)
@@ -29,7 +29,12 @@ classdef Reaction
                 input.OptimalLightFactor double = 0.0;
             end
             for field = string(fieldnames(input).')
-                obj.(field) = input.(field);
+                if isa(input.(field), "dictionary") && ~isa(input.(field).keys, "string")
+                    input_field = dictionary([input.(field).keys.Name].', input.(field).values);
+                else
+                    input_field = input.(field);
+                end
+                obj.(field) = input_field;
             end
         end
         
