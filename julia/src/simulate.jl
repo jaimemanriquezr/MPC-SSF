@@ -378,6 +378,7 @@ function simulate(state::State;
     results.frames[:concentration_water] = concFramesWater
     results.frames[:velocity_biofilm] = velFramesBiofilm
     results.frames[:velocity_flowing] = velFramesFlowing
+    results.time_final = t
     results.simulation_data[:time_final] = t
     results.simulation_data[:time_step] = dt
     return results

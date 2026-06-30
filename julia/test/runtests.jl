@@ -239,4 +239,35 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         # Biofilm velocity in the supernatant is the advective velocity (no CH forcing).
         @test any(!=(0), res.frames[:velocity_biofilm])
     end
+
+    @testset "Results accessors" begin
+        f = addgridpoints(SandFilter(), 20)
+        het = Particle(name="HET", density=1000.0)
+        dom = Liquid(name="DOM", density=998.0)
+        rx = Reaction(name="noop", nominal_rate=0.0, optimal_light_factor=1.0,
+                      order=Dict("HET"=>1.0))
+        ch = CahnHilliardModel(kappa=1e-3, zeta_0=0.5)
+        m = Model([het, dom], [rx]; cohesion_submodel=ch)
+        res = simulate(State(f, m); simulation_time=1e-4, time_step=1e-5,
+                       n_frames=4, quiet=true)
+
+        N = length(f.grid.centers)
+        @test length(times(res)) == 4
+        @test depths(res) == f.grid.centers
+        @test size(concentration(res, "HET", :matrix)) == (N, 4)
+        @test size(concentration(res, "HET", :flowing)) == (N, 4)
+        @test all(==(0), concentration(res, "DOM", :matrix))      # liquids: no matrix
+        @test size(concentration(res, "Water", :enclosed)) == (N, 4)
+        @test_throws Exception concentration(res, "HET", :nope)
+        @test_throws Exception concentration(res, "Ghost", :flowing)
+
+        vf = get_volume_fractions(res)
+        @test size(vf.biofilm) == (N, 4)
+        @test all(==(0), vf.biofilm)                              # clean filter
+        @test vf.biofilm == vf.matrix .+ vf.enclosed
+
+        # Set HET matrix concentration to its density ⇒ φ_M = 1 in that cell/frame.
+        res.frames[:concentration_biofilm][1, 1, 1] = 1000.0
+        @test get_volume_fractions(res).matrix[1, 1] ≈ 1.0
+    end
 end

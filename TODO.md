@@ -58,8 +58,11 @@ has a MATLAB reference to validate against.
         SOLVER B (upwind convection + dispersion FV update), clogging/negativity
         guards, frame capture. Smoke test (zero-rate model) passes structurally;
         NOT yet validated numerically vs MATLAB (needs golden-master data).
-  - [ ] Results (formatting of frames; plotting deferred)
-- [ ] Golden-master tests vs. MATLAB reference outputs.
+  - [x] Results — frame container + accessors (`concentration`,
+        `get_volume_fractions`, `times`, `depths`); plotting deferred. With tests.
+- [ ] Golden-master tests vs. MATLAB reference outputs (the remaining gap:
+      everything is structurally tested but NOT yet validated numerically
+      against MATLAB — needs reference data exported from a MATLAB run).
 - [ ] Add adaptive time-stepping (after MATLAB).
 - [ ] Add pathogen model (after MATLAB).
 - [ ] Port richer results/plotting.

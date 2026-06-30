@@ -57,6 +57,6 @@ export Model, particles, liquids, compute_reaction_rates,
        reaction_orders, quotients
 export State, GlobalConcentration, Velocity, global_concentration_biofilm,
        global_concentration_flowing, volume_fractions, simulate
-export Results
+export Results, concentration, get_volume_fractions, times, depths
 
 end # module MPCSSF
