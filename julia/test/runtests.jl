@@ -1,5 +1,6 @@
 using MPCSSF
 using Test
+using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
 
 # Phase 1 verification scaffold. As each unit is ported, the to-port testsets
 # are filled in. Ecological layer is implemented; the solver remains a stub.
@@ -83,6 +84,62 @@ using Test
         q0 = lookup_quotients([Reaction(half_saturation_constants=Dict("DOM"=>0.3))], comps)
         @test size(q0.K) == (0, 1)
         @test isempty(q0.num_idx)
+    end
+
+    @testset "CahnHilliardModel" begin
+        ch = CahnHilliardModel(kappa=1e-3, zeta_0=2.0)
+        @test ch.kappa == 1e-3
+        @test ch.zeta_1 == 0.0                  # default
+        # Default mobility u(1-u) and potential gradient, scalar + vector.
+        @test ch.mobility(0.5) ≈ 0.25
+        @test ch.mobility([0.0, 0.5, 1.0]) ≈ [0.0, 0.25, 0.0]
+        @test ch.potential_gradient(0.5) ≈ 0.25 * (0.25 * 0.25)
+    end
+
+    @testset "SandFilter grid" begin
+        f = SandFilter(height=1.0, depth=1.0)
+        @test f.grid === nothing
+        f = addgridpoints(f, 50)
+        @test f.grid isa Grid
+        b = f.grid.boundaries
+        @test issorted(b)                                   # ascending faces
+        @test length(f.grid.centers) == length(b) - 1
+        @test f.grid.centers ≈ 0.5 .* (b[1:end-1] .+ b[2:end])
+        @test b[1] ≈ -f.height                              # spans up from −height
+        # n0 marks the cell straddling z = 0.
+        n0 = gridzero(f)
+        @test abs(f.grid.centers[n0]) < gridsize(f) / 2
+    end
+
+    @testset "computeporosity" begin
+        f = SandFilter(sand_porosity=0.4, sand_roughness=5e-3)
+        @test computeporosity(f, 0.0) ≈ 0.4          # sand surface
+        @test computeporosity(f, 1.0) ≈ 0.4          # deep in sand (clamped)
+        @test computeporosity(f, -1.0) ≈ 1.0         # supernatant water (clamped)
+        @test computeporosity(f, -0.002) ≈ 0.64      # within roughness ramp
+        @test computeporosity(f, [0.0, -1.0]) ≈ [0.4, 1.0]   # vectorized
+    end
+
+    @testset "Cahn-Hilliard matrices" begin
+        f = addgridpoints(SandFilter(), 40)
+        model = Model(cohesion_submodel=CahnHilliardModel(kappa=1e-3, zeta_0=2.0))
+        mats = get_cahn_hilliard_matrices(f, model, false)
+        n0 = gridzero(f)
+        N = 2n0
+        for t in (mats.convection, mats.diffusion, mats.diffusion_mobility)
+            @test (t.m, t.n) == (N, N)
+            S = sparse(t)
+            @test size(S) == (N, N)
+        end
+        # Convection and diffusion live in the first block (rows & cols ≤ n0).
+        @test all(mats.convection.I .<= n0) && all(mats.convection.J .<= n0)
+        @test all(mats.diffusion.I .<= n0) && all(mats.diffusion.J .<= n0)
+        # Mobility-weighted diffusion couples block 1 (rows) to block 2 (cols > n0).
+        @test all(mats.diffusion_mobility.I .<= n0)
+        @test all(mats.diffusion_mobility.J .> n0)
+        # Upwind vs. centered convection differ.
+        up = get_cahn_hilliard_matrices(f, model, true)
+        @test up.convection.V != mats.convection.V
     end
 
     @testset "solver (to port)" begin

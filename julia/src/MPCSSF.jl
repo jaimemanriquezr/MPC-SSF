@@ -48,7 +48,9 @@ export Component, Particle, Liquid, Reaction
 export compute_rate, lookup_order, lookup_half_saturation_constants,
        lookup_stoichiometric_coefficients, lookup_quotients
 export CahnHilliardModel
-export SandFilter, addgridpoints, computeporosity
+export SandFilter, Grid, Triplets, addgridpoints, computeporosity,
+       gridsize, gridzero, light_attenuation_eta_water,
+       light_attenuation_eta_sand, get_cahn_hilliard_matrices
 export Model
 export State, simulate
 export Results

@@ -40,8 +40,12 @@ has a MATLAB reference to validate against.
         (`compute_rate`, `lookup_{order,half_saturation_constants,
         stoichiometric_coefficients,quotients}`) + unit tests. NOT yet run in a
         Julia runtime (none in sandbox); user to run `Pkg.test`.
-  - [ ] Cohesion (CahnHilliardModel)
-  - [ ] SandFilter (grid, porosity, light, CH matrices)
+  - [x] Cohesion (CahnHilliardModel) — kappa/zeta_0/zeta_1 + mobility &
+        potential-gradient callables, with tests.
+  - [x] SandFilter — grid (`addgridpoints`/`gridsize`/`gridzero`), porosity,
+        light attenuation (water/sand), and Cahn-Hilliard matrix assembly
+        (`get_cahn_hilliard_matrices` → `Triplets`), with tests. Not yet run in
+        a Julia runtime.
   - [ ] Model (assembly, reaction-rate/stoichiometric matrices)
   - [ ] State (container + initial conditions)
   - [ ] simulate (core solver)

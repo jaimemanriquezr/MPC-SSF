@@ -1,21 +1,29 @@
 # Port of src/cohesion/@CahnHilliardModel/CahnHilliardModel.m
 #
-# Cohesion submodel for the biofilm: supplies the chemical-potential gradient,
-# the mobility function, and the parameter zeta_0 used to assemble the
-# Cahn-Hilliard system ("SOLVER A") in simulate.
+# Cohesion submodel for the biofilm. Supplies:
+#   kappa               - interfacial/diffusion coefficient (used by the
+#                         Cahn-Hilliard diffusion matrix)
+#   zeta_0, zeta_1      - cohesion coefficients
+#   mobility(u)         - mobility function
+#   potential_gradient(u) - chemical-potential gradient dψ/du
 #
-# In MATLAB these are function_handle fields; in Julia they are stored as
-# callables (functions / closures).
-# TODO: confirm defaults and signatures against the MATLAB class + presets.
+# In MATLAB `mobility`/`potential_gradient` are function_handle fields; here they
+# are callables. `kappa`/`zeta_0` are required (presets always set them);
+# `zeta_1` defaults to 0. Functions are written with broadcasting so they accept
+# scalars or vectors.
 
 """
-    CahnHilliardModel(; potential_gradient, mobility, zeta_0)
+    CahnHilliardModel(; kappa, zeta_0, zeta_1=0.0,
+                        mobility=(u -> u .* (1 .- u)),
+                        potential_gradient=(u -> 0.25 .* (u .^ 2 .* (1 .- u) .^ 2)))
 
-Cohesion submodel. `potential_gradient(u)` returns dψ/du, `mobility(u)` the
-mobility, and `zeta_0` the cohesion coefficient.
+Biofilm cohesion submodel. Defaults for `mobility` and `potential_gradient`
+mirror `CahnHilliardModel.m`.
 """
 Base.@kwdef struct CahnHilliardModel
-    potential_gradient::Function
-    mobility::Function
+    kappa::Float64
     zeta_0::Float64
+    zeta_1::Float64 = 0.0
+    mobility::Function = u -> u .* (1 .- u)
+    potential_gradient::Function = u -> 0.25 .* (u .^ 2 .* (1 .- u) .^ 2)
 end
