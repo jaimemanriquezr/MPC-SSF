@@ -184,9 +184,40 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test compute_reaction_rates(Model(), 20) == Float64[]
     end
 
-    @testset "solver (to port)" begin
-        f = SandFilter()
-        m = Model()
-        @test_throws Exception State(f, m)   # constructor not yet ported
+    @testset "State" begin
+        f = addgridpoints(SandFilter(), 30)
+        het = Particle(name="HET", density=1100.0)
+        pom = Particle(name="POM", density=1100.0)
+        dom = Liquid(name="DOM", density=998.0)
+        m = Model([het, pom, dom])
+        s = State(f, m)
+
+        N = length(f.grid.centers)
+        kP, kL = 2, 1
+        @test s.time == 0.0
+        @test size(s.global_concentration.matrix) == (N, kP)
+        @test size(s.global_concentration.enclosed_liquids) == (N, kL)
+        @test length(s.velocity.biofilm) == N - 1
+        @test length(s.velocity.flowing) == N + 1
+        @test length(s.enclosed_water_volume) == N
+
+        @test size(global_concentration_biofilm(s)) == (N, 2kP + kL)
+        @test size(global_concentration_flowing(s)) == (N, kP + kL)
+        @test all(==(0), global_concentration_biofilm(s))      # clean filter
+
+        # Volume fraction = concentration / density (mutate a cell to check).
+        s.global_concentration.matrix[1, 1] = 1100.0
+        @test volume_fractions(s).matrix[1, 1] ≈ 1.0
+        @test size(volume_fractions(s).enclosed_liquids) == (N, kL)
+
+        # A filter without a grid cannot form a State.
+        @test_throws Exception State(SandFilter(), m)
+    end
+
+    @testset "simulate (to port)" begin
+        f = addgridpoints(SandFilter(), 20)
+        m = Model([Particle(name="HET", density=1.0)])
+        s = State(f, m)
+        @test_throws Exception simulate(s)   # solver not yet ported
     end
 end

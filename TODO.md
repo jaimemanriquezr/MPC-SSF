@@ -49,7 +49,9 @@ has a MATLAB reference to validate against.
   - [x] Model — component views (particles/liquids), reaction-rate vector,
         stoichiometric/half-saturation/order matrices, quotients, global params
         (β, τ, water density, detachment), with tests.
-  - [ ] State (container + initial conditions)
+  - [x] State — container (zero-allocated regions, velocities, enclosed water)
+        + dependent accessors (biofilm/flowing concentrations, volume
+        fractions), with tests.
   - [ ] simulate (core solver)
   - [ ] Results
 - [ ] Golden-master tests vs. MATLAB reference outputs.

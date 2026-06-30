@@ -55,7 +55,8 @@ export Model, particles, liquids, compute_reaction_rates,
        stoichiometric_coefficients, stoichiometric_matrix_particles,
        stoichiometric_matrix_liquids, half_saturation_constants,
        reaction_orders, quotients
-export State, simulate
+export State, GlobalConcentration, Velocity, global_concentration_biofilm,
+       global_concentration_flowing, volume_fractions, simulate
 export Results
 
 end # module MPCSSF
