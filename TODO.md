@@ -52,8 +52,13 @@ has a MATLAB reference to validate against.
   - [x] State — container (zero-allocated regions, velocities, enclosed water)
         + dependent accessors (biofilm/flowing concentrations, volume
         fractions), with tests.
-  - [ ] simulate (core solver)
-  - [ ] Results
+  - [x] simulate (core fixed-step solver) — full block-by-block port: reaction
+        kernel (listK/order), light, attachment/detachment/transfer, eco
+        reactions, SOLVER A (Cahn-Hilliard implicit solve → biofilm velocity),
+        SOLVER B (upwind convection + dispersion FV update), clogging/negativity
+        guards, frame capture. Smoke test (zero-rate model) passes structurally;
+        NOT yet validated numerically vs MATLAB (needs golden-master data).
+  - [ ] Results (formatting of frames; plotting deferred)
 - [ ] Golden-master tests vs. MATLAB reference outputs.
 - [ ] Add adaptive time-stepping (after MATLAB).
 - [ ] Add pathogen model (after MATLAB).

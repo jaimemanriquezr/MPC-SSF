@@ -16,7 +16,7 @@
     Model(; components=Component[], reactions=Reaction[],
             cohesion_submodel=nothing, water_density=998.0,
             biofilm_porosity=0.99, osmosis_rate=1e-5,
-            detachment=(v, qnom) -> sqrt.(abs.(v) ./ qnom))
+            detachment=(v -> zero(v)))
     Model(components, reactions=Reaction[]; kwargs...)
 
 Assembled ecological model. `components` mixes [`Particle`](@ref) and
@@ -30,7 +30,9 @@ Base.@kwdef struct Model
     water_density::Float64 = 998.0
     biofilm_porosity::Float64 = 0.99    # β
     osmosis_rate::Float64 = 1e-5        # τ
-    detachment::Function = (v, qnom) -> sqrt.(abs.(v) ./ qnom)
+    # Called by `simulate` as detachment(v) (one arg, matching simulate.m).
+    # Default = no detachment; supply a closure, e.g. v -> sqrt.(abs.(v) ./ qnom).
+    detachment::Function = (v -> zero(v))
 end
 
 # Ergonomic positional constructor: Model(components[, reactions]; kwargs...).

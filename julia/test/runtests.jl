@@ -214,10 +214,29 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test_throws Exception State(SandFilter(), m)
     end
 
-    @testset "simulate (to port)" begin
+    @testset "simulate end-to-end (smoke)" begin
+        # A zero-rate model on a clean filter: exercises the whole solver path
+        # (matrix assembly, SOLVER A linear solve, SOLVER B transport, frame
+        # capture) while staying numerically trivial (no sources ⇒ stays clean).
         f = addgridpoints(SandFilter(), 20)
-        m = Model([Particle(name="HET", density=1.0)])
+        het = Particle(name="HET", density=1000.0)
+        dom = Liquid(name="DOM", density=998.0)
+        rx = Reaction(name="noop", nominal_rate=0.0, optimal_light_factor=1.0,
+                      order=Dict("HET"=>1.0),
+                      stoichiometric_coefficients=Dict("HET"=>1.0, "DOM"=>-1.0))
+        ch = CahnHilliardModel(kappa=1e-3, zeta_0=0.5)
+        m = Model([het, dom], [rx]; cohesion_submodel=ch)
         s = State(f, m)
-        @test_throws Exception simulate(s)   # solver not yet ported
+
+        res = simulate(s; simulation_time=1e-4, time_step=1e-5, n_frames=5, quiet=true)
+        N = length(f.grid.centers)
+        @test res.flag == "OK"
+        @test size(res.frames[:concentration_biofilm]) == (N, 5, 3)   # 2kP+kL
+        @test size(res.frames[:concentration_flowing]) == (N, 5, 2)   # kP+kL
+        @test length(res.frames[:time]) == 5
+        @test all(==(0), res.frames[:concentration_biofilm])          # clean stays clean
+        @test haskey(res.simulation_data, :time_final)
+        # Biofilm velocity in the supernatant is the advective velocity (no CH forcing).
+        @test any(!=(0), res.frames[:velocity_biofilm])
     end
 end
