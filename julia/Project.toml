@@ -1,12 +1,11 @@
 name = "MPCSSF"
-uuid = "00000000-0000-0000-0000-000000000000"
+uuid = "72a1329e-ec7d-4c0b-a0f5-c46aac3128f3"
 authors = ["Jamie <jr.manriquezr@gmail.com>"]
 version = "0.1.0"
 
 # Julia port of the MATLAB multiphase continuum model of slow sand filtration
 # (Diehl et al.). Phase 1 targets parity with the current MATLAB `src/`
 # (fixed-step biofilm model). See ../.claude/julia-port-outline.md and ../TODO.md.
-# Replace the placeholder uuid with one from `using UUIDs; uuid4()`.
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"

@@ -31,11 +31,8 @@ Planning docs (untracked, in `../.claude/`): `julia-port-outline.md`,
 
 ```julia
 julia> using Pkg; Pkg.activate("julia"); Pkg.instantiate()
-julia> Pkg.test("MPCSSF")
+julia> Pkg.test()          # tests the active project (MPCSSF)
 ```
-
-Before relying on it: replace the placeholder `uuid` in `Project.toml`
-(`using UUIDs; uuid4()`).
 
 ## Porting workflow
 
