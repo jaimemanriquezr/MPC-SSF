@@ -34,6 +34,16 @@ classdef Results
         
         phi = getVolumeFractions(obj);
         plotConcentrations(obj);
+        plotConcentration(obj);
+        
+        function plot(obj, variable)
+            switch variable
+                case {"biofilm", "phi_b"}
+                    plotBiofilm(obj);
+                case {"concentrations"}
+                    plotConcentrations(obj)
+            end
+        end
 
         function obj = concatenate(obj,new_obj)
             if isequal(obj.Flag,"UNINITIATED")

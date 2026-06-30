@@ -1,6 +1,7 @@
-function graphPlot = plot(obj, options)
+function graphPlot = plot(obj, ax, options)
     arguments
-        obj  Model
+        obj Model
+        ax = axes(figure());
         options.Layout = 'layered';
         options.LineWidth = 1.5;
         options.EdgeColor = 'k';
@@ -47,5 +48,5 @@ function graphPlot = plot(obj, options)
     reactionGraph = digraph(edgeTable, nodeTable);
 
     plotOptions = namedargs2cell(options);
-    graphPlot = plot(reactionGraph, 'EdgeLabel', reactionGraph.Edges.Label, 'NodeColor', nodeColors, plotOptions{:});
+    graphPlot = plot(ax, reactionGraph, 'EdgeLabel', reactionGraph.Edges.Label, 'NodeColor', nodeColors, plotOptions{:});
 end

@@ -1,7 +1,7 @@
 function p = lookupOrder(obj, components)
     arguments
-        obj   Reaction
-        components  Component
+        obj Reaction
+        components Component
     end
     names = [components.Name];
 

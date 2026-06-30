@@ -8,7 +8,7 @@ classdef Model
         DetachmentFunction function_handle
 
         Reactions =   Reaction.empty;
-        CohesionSubModel =    CahnHilliardModel()
+        CohesionSubModel =  CahnHilliardModel()
     end
 
     properties (Dependent, Hidden)
@@ -24,8 +24,10 @@ classdef Model
     end
 
     methods
-        function obj = Model(input)
+        function obj = Model(components, reactions, input)
             arguments
+                components = Component.empty;
+                reactions = Reaction.empty;
                 input.Components =  Component.empty;
                 input.Kappa double = [];
                 input.Zeta0 double = [];
@@ -38,9 +40,11 @@ classdef Model
                 input.OsmosisRate double = 1e-5;
                 input.BiofilmPorosity double = .99;
 
-                input.Reactions =   Reaction.empty;
+                input.Reactions = Reaction.empty;
                 input.Preset = string.empty;
             end
+            input.Components = components;
+            input.Reactions = reactions;
             switch input.Preset
                 case string.empty
                     propNames = string(properties(obj));

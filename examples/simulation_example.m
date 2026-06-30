@@ -6,7 +6,7 @@ model.CohesionSubModel.Kappa = 1e-2;
 model.CohesionSubModel.Zeta0 = 1.0;
 
 model.DetachmentFunction = @(v) sqrt(abs(v));
-inflow = dictionary("Microorganism", 1e-2, "Nutrient", 1.0);
+inflow = dictionary("Microorganism", 1e-2, "Nutrient", 3.0);
 
 filterState = State(filter, model);
-results = filterState.simulate(InflowConcentrations=inflow, SimulationTime=1e-1, Quiet=true);
+results = filterState.simulate(InflowConcentrations=inflow, SimulationTime=2.0);

@@ -1,6 +1,7 @@
-function results = simulate(obj, parameters)
+function results = simulate(obj, options, parameters)
 arguments
     obj  State
+    options struct = struct.empty;
     parameters.InflowConcentrations = []
     parameters.SimulationTime (1,1) {mustBeNumeric} = 1.0;
     parameters.TimeStep (1,1) = 1E-5;
@@ -8,6 +9,13 @@ arguments
     parameters.CloggingFraction (1,1) {mustBeNumeric} = .99;
     parameters.IsUpwinded (1,1) = false;
     parameters.Quiet = false;
+end
+if ~isempty(options)
+    for field = string(fieldnames(options)).'
+        if isfield(parameters, field)
+            parameters.(field) = options.(field);
+        end
+    end
 end
 disp("Loading parameters...")
 filter = obj.SandFilter;

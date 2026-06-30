@@ -1,8 +1,8 @@
-function bf_line = plotBiofilm(obj, plot_options, t, options)
+function bf_line = plotBiofilm(obj, t, plot_options, options)
     arguments
         obj (1,1)  Results
-        plot_options struct = struct.empty;
         t (1,1) = obj.TimeFinal;
+        plot_options struct = struct.empty;
 
         options.AxisParent = matlab.ui.Figure.empty;
         options.AxisHandle = matlab.graphics.axis.Axes.empty;
@@ -27,6 +27,7 @@ function bf_line = plotBiofilm(obj, plot_options, t, options)
     ax = options.AxisHandle;
     if isempty(ax)
         ax = mpc_axes(...
+        Size=Inf, ...
         AxisParent=options.AxisParent, ...
         YLabel=phi_label, YReverse=true);
         ax.YLim = [-obj.SandFilter.Height, obj.SandFilter.Depth];
@@ -49,9 +50,9 @@ function bf_line = plotBiofilm(obj, plot_options, t, options)
     phi = phi(:, frame);
 
     if isempty(plot_options)
-        bf_line = plot(ax, phi, z, DisplayName="Biofilm vol. fraction");
+        bf_line = plot(ax, phi, z, DisplayName=sprintf("T = %g", t));
     else
         plot_args = namedargs2cell(plot_options);
-        bf_line = plot(ax, phi, z, plot_args{:});
+        bf_line = plot(ax, phi, z, plot_args{:}, DisplayName=sprintf("T = %g", t));
     end
 end
