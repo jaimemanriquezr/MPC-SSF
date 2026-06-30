@@ -51,7 +51,10 @@ export CahnHilliardModel
 export SandFilter, Grid, Triplets, addgridpoints, computeporosity,
        gridsize, gridzero, light_attenuation_eta_water,
        light_attenuation_eta_sand, get_cahn_hilliard_matrices
-export Model
+export Model, particles, liquids, compute_reaction_rates,
+       stoichiometric_coefficients, stoichiometric_matrix_particles,
+       stoichiometric_matrix_liquids, half_saturation_constants,
+       reaction_orders, quotients
 export State, simulate
 export Results
 

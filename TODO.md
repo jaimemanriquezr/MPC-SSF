@@ -46,7 +46,9 @@ has a MATLAB reference to validate against.
         light attenuation (water/sand), and Cahn-Hilliard matrix assembly
         (`get_cahn_hilliard_matrices` → `Triplets`), with tests. Not yet run in
         a Julia runtime.
-  - [ ] Model (assembly, reaction-rate/stoichiometric matrices)
+  - [x] Model — component views (particles/liquids), reaction-rate vector,
+        stoichiometric/half-saturation/order matrices, quotients, global params
+        (β, τ, water density, detachment), with tests.
   - [ ] State (container + initial conditions)
   - [ ] simulate (core solver)
   - [ ] Results

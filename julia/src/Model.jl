@@ -1,39 +1,78 @@
-# Port of src/@Model/{Model,computeReactionRates,isequal,plot}.m
+# Port of src/@Model/{Model,computeReactionRates,isequal}.m
 #
-# Assembles the ecological model: component lists, reactions, cohesion submodel,
-# stoichiometric matrices, half-saturation constants, kinetic orders, and the
-# global parameters (biofilm porosity beta, osmosis rate tau, water density).
-# TODO: port computeReactionRates and the derived stoichiometric/half-saturation
-# matrix assembly used by simulate.m; validate against presets/modelLund.m.
+# Assembles the ecological model: component list, reactions, cohesion submodel,
+# and global parameters (water density, biofilm porosity β, osmosis rate τ,
+# detachment law). MATLAB exposes the derived quantities (particle/liquid lists,
+# stoichiometric matrices, half-saturation constants, kinetic orders) as
+# Dependent properties; here they are functions over the ecological-layer
+# lookups, recomputed on demand (the values are cheap and not mutated).
+#
+# Defaults mirror Model.m: WaterDensity 998, BiofilmPorosity 0.99,
+# OsmosisRate 1e-5, DetachmentFunction sqrt(|v|/qnom). The cohesion submodel has
+# no usable default (CahnHilliardModel requires kappa/zeta_0), so it defaults to
+# `nothing` and must be supplied (presets set it).
 
 """
     Model(; components=Component[], reactions=Reaction[],
-            cohesion_submodel=nothing, biofilm_porosity=0.99,
-            osmosis_rate=1e-5, density_water=1000.0)
+            cohesion_submodel=nothing, water_density=998.0,
+            biofilm_porosity=0.99, osmosis_rate=1e-5,
+            detachment=(v, qnom) -> sqrt.(abs.(v) ./ qnom))
+    Model(components, reactions=Reaction[]; kwargs...)
 
 Assembled ecological model. `components` mixes [`Particle`](@ref) and
-[`Liquid`](@ref); use [`particles`](@ref)/[`liquids`](@ref) to filter.
+[`Liquid`](@ref); use [`particles`](@ref)/[`liquids`](@ref) to split them (order
+preserved). `biofilm_porosity` is β, `osmosis_rate` is τ.
 """
-Base.@kwdef mutable struct Model
+Base.@kwdef struct Model
     components::Vector{Component} = Component[]
     reactions::Vector{Reaction} = Reaction[]
     cohesion_submodel::Union{CahnHilliardModel,Nothing} = nothing
-    biofilm_porosity::Float64 = 0.99    # beta
-    osmosis_rate::Float64 = 1e-5        # tau
-    density_water::Float64 = 1000.0
+    water_density::Float64 = 998.0
+    biofilm_porosity::Float64 = 0.99    # β
+    osmosis_rate::Float64 = 1e-5        # τ
+    detachment::Function = (v, qnom) -> sqrt.(abs.(v) ./ qnom)
 end
 
-particles(m::Model) = filter(c -> c isa Particle, m.components)
-liquids(m::Model)   = filter(c -> c isa Liquid,   m.components)
+# Ergonomic positional constructor: Model(components[, reactions]; kwargs...).
+Model(components::AbstractVector{<:Component},
+      reactions::AbstractVector{Reaction}=Reaction[]; kwargs...) =
+    Model(; components=collect(Component, components),
+            reactions=collect(Reaction, reactions), kwargs...)
 
-"Port of computeReactionRates.m — temperature-corrected reaction-rate vector."
-compute_reaction_rates(m::Model, temperature) =
-    error("not yet ported — see src/@Model/computeReactionRates.m")
+# --- component views (port of get.Particles / get.Liquids) ------------------
 
-"Stoichiometric matrix restricted to particle components (port from simulate.m)."
+"Particulate components, in declaration order."
+particles(m::Model) = Particle[c for c in m.components if c isa Particle]
+
+"Dissolved (liquid) components, in declaration order."
+liquids(m::Model) = Liquid[c for c in m.components if c isa Liquid]
+
+# --- derived matrices (ports of the Dependent properties) -------------------
+
+"Reaction-rate vector at `temperature` (port of computeReactionRates.m)."
+compute_reaction_rates(m::Model, temperature; kwargs...) =
+    [compute_rate(r, temperature; kwargs...) for r in m.reactions]
+
+"Stoichiometric coefficients over all components, (n_components × n_reactions)."
+stoichiometric_coefficients(m::Model) =
+    lookup_stoichiometric_coefficients(m.reactions, m.components)
+
+"Stoichiometric matrix restricted to particles, (n_particles × n_reactions)."
 stoichiometric_matrix_particles(m::Model) =
-    error("not yet ported — see @Model + simulate.m assembly")
+    lookup_stoichiometric_coefficients(m.reactions, particles(m))
 
-"Stoichiometric matrix restricted to liquid components."
+"Stoichiometric matrix restricted to liquids, (n_liquids × n_reactions)."
 stoichiometric_matrix_liquids(m::Model) =
-    error("not yet ported — see @Model + simulate.m assembly")
+    lookup_stoichiometric_coefficients(m.reactions, liquids(m))
+
+"Half-saturation constants over all components, (n_components × n_reactions); absent ⇒ NaN."
+half_saturation_constants(m::Model) =
+    lookup_half_saturation_constants(m.reactions, m.components)
+
+"Kinetic orders over all components, (n_components × n_reactions); absent ⇒ 0."
+reaction_orders(m::Model) =
+    lookup_order(m.reactions, m.components)
+
+"Quotient/inhibition terms over all components (see [`lookup_quotients`](@ref))."
+quotients(m::Model) =
+    lookup_quotients(m.reactions, m.components)

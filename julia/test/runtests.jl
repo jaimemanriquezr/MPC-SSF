@@ -142,6 +142,48 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test up.convection.V != mats.convection.V
     end
 
+    @testset "Model" begin
+        het = Particle(name="HET", density=1.0)
+        pom = Particle(name="POM", density=2.0)
+        dom = Liquid(name="DOM", density=998.0)
+        rx1 = Reaction(name="growth", nominal_rate=2.0,
+                       temperature_correction_factor=1.07,
+                       stoichiometric_coefficients=Dict("HET"=>1.0, "DOM"=>-0.5),
+                       half_saturation_constants=Dict("DOM"=>0.3))
+        rx2 = Reaction(name="decay", nominal_rate=0.5,
+                       stoichiometric_coefficients=Dict("HET"=>-1.0, "POM"=>1.0))
+
+        # Positional constructor + defaults.
+        m = Model([het, pom, dom], [rx1, rx2])
+        @test m.water_density == 998.0
+        @test m.biofilm_porosity == 0.99
+        @test m.osmosis_rate == 1e-5
+        @test m.cohesion_submodel === nothing
+
+        # Component views preserve declaration order.
+        @test particles(m) == [het, pom]
+        @test liquids(m) == [dom]
+        @test eltype(particles(m)) == Particle
+
+        # Reaction rates at the nominal temperature reduce to nominal rates.
+        @test compute_reaction_rates(m, 20) ≈ [2.0, 0.5]
+
+        # Derived matrices have the right shapes and agree with the lookups.
+        @test size(stoichiometric_matrix_particles(m)) == (2, 2)
+        @test size(stoichiometric_matrix_liquids(m)) == (1, 2)
+        @test size(half_saturation_constants(m)) == (3, 2)
+        @test stoichiometric_matrix_particles(m) ==
+              lookup_stoichiometric_coefficients(m.reactions, particles(m))
+        # HET stoichiometry across the two reactions: +1 (growth), −1 (decay).
+        @test stoichiometric_matrix_particles(m)[1, :] == [1.0, -1.0]
+        # DOM (the only liquid) is consumed in reaction 1.
+        @test stoichiometric_matrix_liquids(m)[1, :] == [-0.5, 0.0]
+
+        # Empty model is well-defined.
+        @test isempty(particles(Model()))
+        @test compute_reaction_rates(Model(), 20) == Float64[]
+    end
+
     @testset "solver (to port)" begin
         f = SandFilter()
         m = Model()
