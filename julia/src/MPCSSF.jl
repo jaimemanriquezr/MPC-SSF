@@ -45,6 +45,8 @@ include("simulate.jl")
 include("Results.jl")
 
 export Component, Particle, Liquid, Reaction
+export compute_rate, lookup_order, lookup_half_saturation_constants,
+       lookup_stoichiometric_coefficients, lookup_quotients
 export CahnHilliardModel
 export SandFilter, addgridpoints, computeporosity
 export Model

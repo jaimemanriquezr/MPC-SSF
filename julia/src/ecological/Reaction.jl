@@ -1,64 +1,160 @@
-# Port of src/ecological/@Reaction/*.m
+# Port of src/ecological/@Reaction/{Reaction,computeRate,lookupOrder,
+#   lookupHalfSaturationConstants,lookupStoichiometricCoefficients,
+#   lookupQuotients}.m
 #
-# A biochemical reaction: nominal rate, stoichiometry, kinetic order, half-
-# saturation (Monod) constants, and quotient (inhibition) terms. The MATLAB
-# @Reaction folder splits this across:
-#   Reaction.m, computeRate.m, lookupOrder.m, lookupHalfSaturationConstants.m,
-#   lookupStoichiometricCoefficients.m, lookupQuotients.m
-#
-# In Julia we store stoichiometry/order/half-saturation as Dicts keyed by
-# component name and provide lookup_* functions that resolve them against an
-# ordered component list (matching how simulate.m assembles matrices).
-#
-# TODO: port computeRate (temperature correction: rate * Q10^(293 - T)) and the
-# lookup_* helpers; validate against @Reaction outputs.
+# A biochemical reaction: nominal rate + temperature correction, kinetic orders,
+# Monod half-saturation constants, stoichiometry, biofilm/flowing efficiencies,
+# and light dependence. The MATLAB dictionaries are keyed by component name (or
+# by Component objects, which the constructor converts to names); we store them
+# as `Dict{String,Float64}` and accept either key kind.
 
 """
-    Reaction(; nominal_rate, stoichiometric_coefficients=Dict{String,Float64}(),
-               order=Dict{String,Float64}(),
-               half_saturation=Dict{String,Float64}(),
-               temperature_factor=1.0,
-               is_light_dependent=false, optimal_light_factor=1.0,
-               minimum_light_factor=0.0)
+    Reaction(; name="", nominal_rate=1.0, temperature_correction_factor=1.0,
+               order=Dict(), half_saturation_constants=Dict(),
+               stoichiometric_coefficients=Dict(),
+               efficiency_biofilm=1.0, efficiency_flowing=1.0,
+               is_light_dependent=false,
+               minimum_light_factor=0.0, optimal_light_factor=0.0)
 
-A single ecological reaction. `stoichiometric_coefficients`, `order`, and
-`half_saturation` are keyed by component name.
+A single ecological reaction. The three dictionaries are keyed by component name;
+keys may instead be [`Component`](@ref) objects (their `.name` is used).
+`half_saturation_constants` may additionally contain quotient/inhibition keys of
+the form `"numerator/denominator"` (see [`lookup_quotients`](@ref)).
 """
-Base.@kwdef struct Reaction
+struct Reaction
+    name::String
     nominal_rate::Float64
-    stoichiometric_coefficients::Dict{String,Float64} = Dict{String,Float64}()
-    order::Dict{String,Float64} = Dict{String,Float64}()
-    half_saturation::Dict{String,Float64} = Dict{String,Float64}()
-    temperature_factor::Float64 = 1.0          # Q10 / Arrhenius-style correction
-    is_light_dependent::Bool = false
-    optimal_light_factor::Float64 = 1.0
-    minimum_light_factor::Float64 = 0.0
+    temperature_correction_factor::Float64
+    order::Dict{String,Float64}
+    half_saturation_constants::Dict{String,Float64}
+    stoichiometric_coefficients::Dict{String,Float64}
+    efficiency_biofilm::Float64
+    efficiency_flowing::Float64
+    is_light_dependent::Bool
+    minimum_light_factor::Float64
+    optimal_light_factor::Float64
 end
 
-# --- ports of the @Reaction methods (stubs) ---------------------------------
+# Normalize a dict whose keys are either Strings or Components into String keys.
+_namekeys(d::AbstractDict) =
+    Dict{String,Float64}((k isa Component ? k.name : String(k)) => Float64(v)
+                         for (k, v) in d)
 
-"""
-    compute_rate(rx::Reaction, temperature)
-
-Temperature-corrected nominal rate: `nominal_rate * temperature_factor^(293 - T)`
-(port of computeRate.m). TODO: confirm the exact correction form against MATLAB.
-"""
-function compute_rate(rx::Reaction, temperature)
-    error("compute_rate not yet ported — see src/ecological/@Reaction/computeRate.m")
+function Reaction(; name::AbstractString="",
+                  nominal_rate::Real=1.0,
+                  temperature_correction_factor::Real=1.0,
+                  order::AbstractDict=Dict{String,Float64}(),
+                  half_saturation_constants::AbstractDict=Dict{String,Float64}(),
+                  stoichiometric_coefficients::AbstractDict=Dict{String,Float64}(),
+                  efficiency_biofilm::Real=1.0,
+                  efficiency_flowing::Real=1.0,
+                  is_light_dependent::Bool=false,
+                  minimum_light_factor::Real=0.0,
+                  optimal_light_factor::Real=0.0)
+    return Reaction(String(name), nominal_rate, temperature_correction_factor,
+                    _namekeys(order), _namekeys(half_saturation_constants),
+                    _namekeys(stoichiometric_coefficients),
+                    efficiency_biofilm, efficiency_flowing,
+                    is_light_dependent, minimum_light_factor, optimal_light_factor)
 end
 
-"Resolve stoichiometric coefficients into a vector aligned with `components`."
-lookup_stoichiometric_coefficients(rx::Reaction, components) =
-    error("not yet ported — see lookupStoichiometricCoefficients.m")
+"""
+    compute_rate(rx::Reaction, temperature; scale=:celsius, nominal_temperature=20)
 
-"Resolve kinetic orders into a vector aligned with `components`."
-lookup_order(rx::Reaction, components) =
-    error("not yet ported — see lookupOrder.m")
+Temperature-corrected reaction rate (port of `computeRate.m`):
 
-"Resolve half-saturation constants aligned with `components`."
-lookup_half_saturation_constants(rx::Reaction, components) =
-    error("not yet ported — see lookupHalfSaturationConstants.m")
+    μ = μ₂₀ · θ^(T/T_nom − 1)
 
-"Resolve quotient (inhibition) terms; returns (K, denominator idx, numerator idx)."
-lookup_quotients(rx::Reaction, components) =
-    error("not yet ported — see lookupQuotients.m")
+with `μ₂₀ = rx.nominal_rate`, `θ = rx.temperature_correction_factor`. For
+`scale = :celsius`, both `temperature` and `nominal_temperature` are shifted by
+273 K before forming the ratio; for `scale = :kelvin` they are used as given.
+Broadcast over a vector of reactions: `compute_rate.(reactions, T)`.
+"""
+function compute_rate(rx::Reaction, temperature::Real;
+                      scale::Symbol=:celsius, nominal_temperature::Real=20)
+    μ20 = rx.nominal_rate
+    θ = rx.temperature_correction_factor
+    if scale === :celsius
+        T = 273 + temperature
+        Tnom = 273 + nominal_temperature
+    elseif scale === :kelvin
+        T = temperature
+        Tnom = nominal_temperature
+    else
+        throw(ArgumentError("Invalid temperature scale $scale (use :celsius or :kelvin)"))
+    end
+    return μ20 * θ^(T / Tnom - 1)
+end
+
+# --- (component × reaction) lookup matrices ---------------------------------
+# Generic helper: build an (n_components × n_reactions) matrix by looking each
+# component name up in `field(rx)` for every reaction, using `fallback` when the
+# component is absent.
+function _lookup_matrix(reactions::AbstractVector{Reaction},
+                        components::AbstractVector{<:Component},
+                        field::Function, fallback::Float64)
+    names = [c.name for c in components]
+    M = fill(fallback, length(names), length(reactions))
+    for (j, rx) in pairs(reactions)
+        d = field(rx)
+        for (i, nm) in pairs(names)
+            haskey(d, nm) && (M[i, j] = d[nm])
+        end
+    end
+    return M
+end
+
+"Kinetic orders as an (n_components × n_reactions) matrix; absent ⇒ 0 (port of lookupOrder.m)."
+lookup_order(reactions, components) =
+    _lookup_matrix(reactions, components, rx -> rx.order, 0.0)
+
+"Half-saturation constants, (n_components × n_reactions); absent ⇒ NaN (port of lookupHalfSaturationConstants.m)."
+lookup_half_saturation_constants(reactions, components) =
+    _lookup_matrix(reactions, components, rx -> rx.half_saturation_constants, NaN)
+
+"Stoichiometric coefficients, (n_components × n_reactions); absent ⇒ 0 (port of lookupStoichiometricCoefficients.m)."
+lookup_stoichiometric_coefficients(reactions, components) =
+    _lookup_matrix(reactions, components, rx -> rx.stoichiometric_coefficients, 0.0)
+
+"""
+    lookup_quotients(reactions, components)
+        -> (K, den_idx, num_idx)
+
+Port of `lookupQuotients.m`. Scans each reaction's `half_saturation_constants`
+for quotient/inhibition keys of the form `"numerator/denominator"`. Returns:
+
+  - `K`        : (n_quotients × n_reactions) matrix; row `i` has its value placed
+                 in the column of the reaction that owns quotient `i`, NaN else.
+  - `den_idx`  : component index of each quotient's denominator.
+  - `num_idx`  : component index of each quotient's numerator.
+
+The MATLAB tuple order is `[K, denIdx, numIdx]`; this returns a NamedTuple with
+those names for clarity.
+"""
+function lookup_quotients(reactions::AbstractVector{Reaction},
+                          components::AbstractVector{<:Component})
+    names = [c.name for c in components]
+    nameindex(s) = something(findfirst(==(s), names), 0)
+
+    rx_ids = Int[]
+    values = Float64[]
+    num_idx = Int[]
+    den_idx = Int[]
+    for (j, rx) in pairs(reactions)
+        for (key, val) in rx.half_saturation_constants
+            occursin("/", key) || continue
+            num, den = split(key, "/"; limit=2)
+            push!(rx_ids, j)
+            push!(values, val)
+            push!(num_idx, nameindex(String(num)))
+            push!(den_idx, nameindex(String(den)))
+        end
+    end
+
+    nq = length(rx_ids)
+    K = fill(NaN, nq, length(reactions))
+    for i in 1:nq
+        K[i, rx_ids[i]] = values[i]
+    end
+    return (K=K, den_idx=den_idx, num_idx=num_idx)
+end

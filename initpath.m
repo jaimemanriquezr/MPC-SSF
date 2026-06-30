@@ -1,5 +1,3 @@
 function initpath()
-    if isfolder("./src")
-        addpath(genpath("./src"))
-    end
+    addpath(genpath("src"))
 end

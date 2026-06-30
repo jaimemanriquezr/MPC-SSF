@@ -1,13 +1,15 @@
-# Port of src/ecological/Liquid.m
+# Port of src/ecological/Liquid.m  (Liquid < Component)
 #
-# Dissolved/liquid ecological component. MATLAB fields (verify against Liquid.m):
-#   Name, Density, Dispersivity, TransportRate
-# TODO: confirm field names/defaults against src/ecological/Liquid.m.
+# MATLAB Liquid adds no fields beyond Component; it exists as a distinct type so
+# the model can dispatch on particulate vs. dissolved components.
 
 """
     Liquid(; name, density, dispersivity=0.0, transport_rate=0.0)
 
-Dissolved (liquid-phase) ecological component (e.g. DOM, O2, substrate).
+Dissolved (liquid-phase) ecological component (e.g. dissolved organic matter
+`DOM`, oxygen, substrate).
+
+Units: `density` kg/m³, `dispersivity` m, `transport_rate` 1/day.
 """
 Base.@kwdef struct Liquid <: Component
     name::String

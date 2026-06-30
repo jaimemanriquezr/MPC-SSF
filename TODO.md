@@ -1,8 +1,8 @@
 # TODO
 
-## MATLAB project: reach parity with publication-ready version (`old-src/`)
+## MATLAB project: reach parity with publication-ready version (`.old-src/`)
 
-The current `src/` is a clean-API rollback of `old-src/`. Goal: incrementally
+The current `src/` is a clean-API rollback of `.old-src/`. Goal: incrementally
 re-introduce the publication features on the new class-based design.
 (Details: `.claude/old-src-notes.md`.)
 
@@ -23,7 +23,7 @@ re-introduce the publication features on the new class-based design.
 - [ ] **Diagnostics.** `print_*` and `*_error` helpers as needed.
 
 ### Verification
-- [ ] Cross-check refactored `src/` against `old-src/` outputs on shared presets
+- [ ] Cross-check refactored `src/` against `.old-src/` outputs on shared presets
       before considering a feature "done".
 
 ## Julia port (branch `julia-port`, local only)
@@ -34,9 +34,18 @@ tracks the MATLAB parity work — port the **current `src/` feature set first**
 it lands in MATLAB, so both codebases advance in lockstep and every Julia stage
 has a MATLAB reference to validate against.
 
-- [ ] Scaffold package (`Project.toml`, `src/`, `test/`, `examples/`).
-- [ ] Port ecological layer → cohesion → SandFilter → Model → State → simulate →
-      Results (fixed-step parity with current `src/`).
+- [x] Scaffold package (`Project.toml`, `src/`, `test/`, `examples/`).
+- Port (fixed-step parity with current `src/`), leaf-first:
+  - [x] Ecological layer — Component, Particle, Liquid, Reaction
+        (`compute_rate`, `lookup_{order,half_saturation_constants,
+        stoichiometric_coefficients,quotients}`) + unit tests. NOT yet run in a
+        Julia runtime (none in sandbox); user to run `Pkg.test`.
+  - [ ] Cohesion (CahnHilliardModel)
+  - [ ] SandFilter (grid, porosity, light, CH matrices)
+  - [ ] Model (assembly, reaction-rate/stoichiometric matrices)
+  - [ ] State (container + initial conditions)
+  - [ ] simulate (core solver)
+  - [ ] Results
 - [ ] Golden-master tests vs. MATLAB reference outputs.
 - [ ] Add adaptive time-stepping (after MATLAB).
 - [ ] Add pathogen model (after MATLAB).
