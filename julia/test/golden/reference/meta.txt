@@ -1,0 +1,6 @@
+kP=2
+kL=1
+N=42
+nframes=5
+flag=OK
+names=Microorganism,POM,Nutrient

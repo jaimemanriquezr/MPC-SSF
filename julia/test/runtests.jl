@@ -320,19 +320,15 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test [r.is_light_dependent for r in m.reactions] == [false, true, false, false, false]
     end
 
-    # Golden-master parity vs MATLAB. Skipped unless MPCSSF_GOLDEN_REF points at
-    # a reference directory produced by test/golden/export_reference.m (which
-    # needs MATLAB). See test/golden/README.md.
+    # Golden-master parity vs MATLAB. Runs against the committed reference
+    # (test/golden/reference/, produced by export_reference.m) by default; set
+    # MPCSSF_GOLDEN_REF to compare against a freshly exported reference instead.
+    # See test/golden/README.md.
     @testset "golden-master vs MATLAB" begin
-        refdir = get(ENV, "MPCSSF_GOLDEN_REF", "")
-        if isempty(refdir) || !isdir(refdir)
-            @info "golden-master check skipped (set MPCSSF_GOLDEN_REF to a reference dir)"
-            @test_skip false
-        else
-            include(joinpath(@__DIR__, "golden", "compare.jl"))
-            r = golden_compare(refdir; verbose=true)
-            @test r.flags_agree
-            @test r.match
-        end
+        include(joinpath(@__DIR__, "golden", "compare.jl"))
+        refdir = get(ENV, "MPCSSF_GOLDEN_REF", GOLDEN_DEFAULT_REF)
+        r = golden_compare(refdir; verbose=true)
+        @test r.flags_agree
+        @test r.match
     end
 end
