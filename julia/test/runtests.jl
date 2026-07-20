@@ -530,4 +530,19 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         # the adaptive stepping is deterministic here: identical step count
         @test r.jl_steps == r.ref_steps
     end
+
+    # Pathogen golden-master: modelPathogen vs the AUTHORITATIVE slow-sand-
+    # filtration @SDfilter/run_pathogen.m + thesis_model.mat (reference exported
+    # by export_pathogen_reference.m into test/golden/reference_pathogen/). A
+    # seeded mature biofilm makes the biofilm-phase reactions (death, hydrolysis,
+    # pathogen inactivation, bacterivory) fire; the run also exercises
+    # sand_pathogen (differential PAT→sand attachment) and the flowing-phase
+    # water_factor. See test/golden/README.md.
+    @testset "golden-master vs MATLAB (pathogen)" begin
+        include(joinpath(@__DIR__, "golden", "compare_pathogen.jl"))
+        refdir = get(ENV, "MPCSSF_GOLDEN_PATHOGEN_REF", PGOLD_DEFAULT_REF)
+        r = golden_compare_pathogen(refdir; verbose=true)
+        @test r.flags_agree
+        @test r.match
+    end
 end

@@ -93,3 +93,52 @@ Result: **exact match**. Both codes take the same 228 steps and every field
 deterministic between MATLAB and Julia over this horizon (the run spec keeps a
 short physical time so concentrations stay small and the CFL bound is dominated
 by advection). The testset also asserts identical step counts.
+
+## Pathogen golden-master
+
+`export_pathogen_reference.m` / `compare_pathogen.jl` validate `modelPathogen()`
+against the **authoritative** pathogen code — `@SDfilter/run_pathogen.m` +
+`thesis_model.mat` in the sibling `slow-sand-filtration` checkout (this is the
+only golden master that drives that repo rather than MPC-SSF's own `src/`, since
+the pathogen model exists only there). Reference: `reference_pathogen/`.
+
+The run spec removes every cross-codebase confounder so the two solvers are
+numerically comparable:
+
+- **grid**: `SDfilter.add_cells(20)` and Julia `addgridpoints(20)` build the
+  identical grid (both `dz = 2/(2n+1)`, same centers).
+- **temperature**: 293 K (MATLAB) / 20 °C (Julia). The two codebases use
+  *different* temperature-correction formulas — MATLAB `θ^(293−T_K)`, Julia
+  `θ^(T_K/293 − 1)` — but both collapse to `μ = nominal` at 293 K / 20 °C, so the
+  correction is neutralized.
+- **light**: `dark_respiration = 0` makes MATLAB `max(fdark, I·e^{1−I})` equal
+  Julia `max(0, min_light + I·e^{1−I})`, since the light term is ≥ 0. (For
+  `dark_respiration > 0` the two forms genuinely differ — Julia's per-reaction
+  `minimum_light_factor` is *added*, MATLAB's global `fdark` is a *floor* — so
+  that case needs a light-model reconciliation before it can be golden-mastered.)
+- **detachment**: set to `sqrt(|v|/7.2)` on both sides.
+
+To exercise the pathogen physics the run **seeds a uniform mature biofilm** (a
+clean filter stays clean, since growth is order-1 in existing biomass). That
+makes the biofilm-phase reactions — death, hydrolysis, **pathogen inactivation**,
+and **bacterivory** — fire, and combined with `sand_pathogen = 0.1` and
+`water_factor = 1e-3` it covers the two pathogen-specific solver knobs
+(`Particle.sand_attachment_factor`, `Reaction.efficiency_flowing`).
+
+Regenerate the reference (needs MATLAB and the `slow-sand-filtration` sibling
+checkout):
+
+```
+matlab -batch "run('julia/test/golden/run_export_pathogen.m')"
+```
+
+Result at the committed **10-step** spec (`TimeStep=1e-6`, `SimulationTime=1e-5`):
+**match** within the standard `atol=1e-7` / `rtol=1e-6` (worst ~2.5e-8 abs). The
+residual is accumulated cross-implementation floating point, confirmed by two
+observations: it is exactly **0 at t = 0**, and it scales **super-linearly** with
+step count (≈1.1e-8 abs over 10 steps → ≈1.6e-6 over 100), i.e. last-bit
+differences in the stiff Cahn-Hilliard + osmosis sparse solve (`zeta_0 = 1`,
+`τ = 1e-3`) compounding through the dynamics — not a systematic algorithmic
+difference. Unlike the adaptive master (Julia vs MPC-SSF, same code lineage, so
+~1e-15), this master crosses to the *independent* publication implementation, so
+some per-step divergence is expected; the short horizon keeps it within tol.
