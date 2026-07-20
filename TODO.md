@@ -110,9 +110,15 @@ has a MATLAB reference to validate against.
       `water_factor=1e-3` cover the two solver knobs. MATCH within the standard
       `atol=1e-7`/`rtol=1e-6` (worst ~2.5e-8); residual is accumulated
       cross-implementation float (0 at t=0, super-linear in step count).
-      Follow-up (deferred): `dark_respiration>0` needs a light-model
-      reconciliation — Julia adds per-reaction `minimum_light_factor`, MATLAB
-      floors with a global `fdark` — before that regime can be golden-mastered.
+      Light-model reconciliation DONE (commits ff75190 Julia, 3bfad2a MATLAB
+      on `matlab-claude`): the additive `max(0, min_light + I_eff·e^{1-I_eff})`
+      (MPC-SSF `simulate.m` + original port) was replaced by the authoritative
+      dark-respiration FLOOR `max(fdark, I_eff·e^{1-I_eff})` (run_biofilm.m),
+      with per-reaction `minimum_light_factor` standing in for global `fdark`.
+      Validated by an isolated unit test (`_light_factor_floor`) and a
+      light-active pathogen golden (`reference_pathogen_light/`, dark_resp=0.1 +
+      constant light). Forms coincide when either factor is 0, so prior goldens
+      (all dark) are unchanged. 212 tests pass.
 - [x] Port richer results/plotting. DONE: Makie plots via package extension
       (`ext/MPCSSFMakieExt.jl`) + `Results` accessors; see the plotting item above.
 
