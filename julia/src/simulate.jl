@@ -107,26 +107,34 @@ function _cfl_hydrolysis_bound(X::AbstractMatrix, K_Hyd::Real)
     return m
 end
 
-# Port of the evaluateReactions subfunction. `phi` is per-cell; returns nCells×nRx.
-function _evaluate_reactions(local_, kernel, phi, muRates, lightFactor)
-    nCells = size(local_, 1)
-    nRx = length(muRates)
-    rx = zeros(nCells, nRx)
-    for i in 1:nRx
+# In-place port of the evaluateReactions subfunction. Writes the nCells×nRx
+# reaction-rate matrix into `rx` (preallocated in the time loop). The scalar loop
+# computes the Monod minimum without per-reaction temporaries; the arithmetic and
+# reduction order are identical to the broadcast form, so results are bit-for-bit
+# unchanged (monod terms are ≤ 1, so seeding the min with 1.0 is a no-op).
+function _evaluate_reactions!(rx, local_, kernel, phi, muRates, lightFactor)
+    nCells, nRx = size(rx)
+    @inbounds for i in 1:nRx
         cols = kernel.monod_cols[i]
-        if isempty(cols)
-            monod = ones(nCells)
-        else
-            sub = local_[:, cols]
-            Ki = reshape(kernel.monod_K[i], 1, :)
-            terms = (sub .+ _REALMIN) ./ (Ki .+ sub .+ _REALMIN)
-            monod = vec(minimum(terms, dims=2))
+        Ki = kernel.monod_K[i]
+        oc = kernel.order_col[i]
+        mu_i = muRates[i]
+        for n in 1:nCells
+            monod = 1.0
+            for kk in eachindex(cols)
+                x = local_[n, cols[kk]]
+                monod = min(monod, (x + _REALMIN) / (Ki[kk] + x + _REALMIN))
+            end
+            rx[n, i] = phi[n] * mu_i * lightFactor[n, i] * monod * local_[n, oc]
         end
-        prod_ = @view local_[:, kernel.order_col[i]]
-        @views @. rx[:, i] = phi * muRates[i] * lightFactor[:, i] * monod * prod_
     end
     return rx
 end
+
+# Allocating wrapper (external callers / tests). `phi` is per-cell; returns nCells×nRx.
+_evaluate_reactions(local_, kernel, phi, muRates, lightFactor) =
+    _evaluate_reactions!(zeros(size(local_, 1), length(muRates)),
+                         local_, kernel, phi, muRates, lightFactor)
 
 _meanval(x) = sum(x) / length(x)
 
@@ -291,6 +299,13 @@ function simulate(state::State;
     results.simulation_data[:time_step] = is_adaptive ? "adaptive" : dt
     t = t0
     step_times = Float64[t0]        # t after each step; diff gives the dt sequence
+    # reused per-step reaction buffers (overwritten each step by _evaluate_reactions!)
+    ecoBiofilmBuf  = zeros(N, nRx)
+    ecoEnclosedBuf = zeros(N, nRx)
+    ecoFlowingBuf  = zeros(N, nRx)
+    # light factor: non-light-dependent columns are 1 for all time; only the
+    # light-dependent columns are rewritten each step, so allocate/fill once.
+    lightFactor = ones(N, nRx)
     while t < t0 + simulation_time
         globalConcInflow = inflow_fn(t)
 
@@ -342,16 +357,19 @@ function simulate(state::State;
         light = f.light_irradiation(t)
         lightAttenuated = light .* exp.(-eta) ./ light_optimal
         lightEffective = lightAttenuated .* exp.(1 .- lightAttenuated)
-        lightFactor = ones(N, nRx)
         if any(light_dep)
             lightFactor[:, light_dep] = _light_factor_floor(lightEffective, min_light)
         end
 
         # --- ecological + exchange reactions ---
-        # Phase efficiencies scale each reaction per region (defaults 1.0).
-        ecoBiofilm = _evaluate_reactions(localBiofilm, kernel, phiBiofilm, muRates, lightFactor) .* eff_biofilm
-        ecoEnclosed = _evaluate_reactions(localEnclosed, kernel, phiEnclosed, muRates, lightFactor) .* eff_biofilm
-        ecoFlowing = _evaluate_reactions(localFlowing, kernel, phiFlowing, muRates, lightFactor) .* eff_flowing
+        # Phase efficiencies scale each reaction per region (defaults 1.0). The
+        # reaction rates are written into reused buffers and scaled in place.
+        ecoBiofilm = _evaluate_reactions!(ecoBiofilmBuf, localBiofilm, kernel, phiBiofilm, muRates, lightFactor)
+        ecoBiofilm .*= eff_biofilm
+        ecoEnclosed = _evaluate_reactions!(ecoEnclosedBuf, localEnclosed, kernel, phiEnclosed, muRates, lightFactor)
+        ecoEnclosed .*= eff_biofilm
+        ecoFlowing = _evaluate_reactions!(ecoFlowingBuf, localFlowing, kernel, phiFlowing, muRates, lightFactor)
+        ecoFlowing .*= eff_flowing
 
         ecoRxM  = ecoBiofilm * sigmaP'
         ecoRxPe = ecoEnclosed * sigmaP'
