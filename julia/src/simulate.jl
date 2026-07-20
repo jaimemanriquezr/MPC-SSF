@@ -83,22 +83,36 @@ _meanval(x) = sum(x) / length(x)
 """
     simulate(state::State; inflow_concentrations=nothing, simulation_time=1.0,
              time_step=1e-5, n_frames=200, clogging_fraction=0.99,
-             upwinded=false, quiet=false) -> Results
+             upwinded=false, quiet=false,
+             cfl_factor=0.99, adaptive_velocity_factor=0.0,
+             adaptive_time_tolerance=1e-3, adaptive_initial_dt=5e-7,
+             adaptive_max_dt=5e-7) -> Results
 
-Run the slow-sand-filtration simulation from `state` with a fixed time step
-(parity with the current MATLAB `simulate`). `inflow_concentrations` may be
-`nothing` (zero inflow), a vector of length `kP+kL`, or a function `t -> vector`.
-Returns a [`Results`](@ref) whose `flag` is `"OK"`, `"CLOGGED"`, `"BIOFILM"`, or
+Run the slow-sand-filtration simulation from `state`. `time_step` is either a
+number (fixed step) or `:adaptive`, which recomputes the step each iteration
+from a per-step CFL bound (ported from the MATLAB `simulate` adaptive path,
+itself from slow-sand-filtration `@SDfilter/run_biofilm.m`). The adaptive path
+grows `dt` by at most `(1 + adaptive_time_tolerance)` per step toward
+`cfl_factor/max(w)`, capped at `adaptive_max_dt`, starting from
+`adaptive_initial_dt`; it assumes the Lund/Rosenqvist model structure (see
+[`modelLund`](@ref)). `inflow_concentrations` may be `nothing` (zero inflow), a
+vector of length `kP+kL`, or a function `t -> vector`. Returns a
+[`Results`](@ref) whose `flag` is `"OK"`, `"CLOGGED"`, `"BIOFILM"`, or
 `"FLOWING"`.
 """
 function simulate(state::State;
                   inflow_concentrations=nothing,
                   simulation_time::Real=1.0,
-                  time_step::Real=1e-5,
+                  time_step=1e-5,
                   n_frames::Integer=200,
                   clogging_fraction::Real=0.99,
                   upwinded::Bool=false,
-                  quiet::Bool=false)
+                  quiet::Bool=false,
+                  cfl_factor::Real=0.99,
+                  adaptive_velocity_factor::Real=0.0,
+                  adaptive_time_tolerance::Real=1e-3,
+                  adaptive_initial_dt::Real=5e-7,
+                  adaptive_max_dt::Real=5e-7)
     f = state.filter
     model = state.model
     temperature = f.temperature
@@ -200,7 +214,21 @@ function simulate(state::State;
     end
 
     # ---- VI. time integration ---------------------------------------------
-    dt = float(time_step)
+    # Fixed step (numeric time_step) or per-step CFL bound (time_step=:adaptive).
+    is_adaptive = time_step === :adaptive
+    dt = is_adaptive ? float(adaptive_initial_dt) : float(time_step)
+    if is_adaptive
+        # CFL constants (Lund-structured model assumption; see docstring).
+        alphaP = alpha[1]
+        alphaL = alpha[kP+1]
+        hs = half_saturation_constants(model)              # nComp × nRx, NaN absent
+        K_HetGrowth = [isnan(x) ? Inf : x for x in hs[kP+1:kP+kL, 1]]
+        K_PhoGrowth = [isnan(x) ? Inf : x for x in hs[kP+1:kP+kL, 2]]
+        K_CFL = hcat(K_HetGrowth, K_PhoGrowth)             # kL × 2
+        qvals = [x for x in quotients(model).K if !isnan(x)]   # hydrolysis POM/HET
+        K_Hyd = isempty(qvals) ? Inf : maximum(qvals)
+    end
+    results.simulation_data[:time_step] = is_adaptive ? "adaptive" : dt
     t = t0
     while t < t0 + simulation_time
         globalConcInflow = inflow_fn(t)
@@ -309,6 +337,65 @@ function simulate(state::State;
                           (volume_avg_velocity[2:end-1] .- velBiofilm .* phiBdy) ./ (1 .- phiBdy),
                           volume_avg_velocity[end])
 
+        # --- time adaptivity (CFL) ---
+        # Per-step CFL bound; dt grows by at most (1 + tol) toward
+        # cfl_factor/max(w). Weights per region (matrix, enclosed P, enclosed L,
+        # flowing P, flowing L): w_v advection, w_a dispersion, w_b exchange,
+        # w_s ecological source. Ported from the MATLAB adaptive path.
+        if is_adaptive
+            vbmax = (1 + adaptive_velocity_factor) * maximum(abs.(velBiofilm))
+            vfmax = (1 + adaptive_velocity_factor) * maximum(abs.(velFlowing))
+            maxPhib = maximum(phiBiofilm)
+            phie_f_max = maximum(phiEnclosed ./ phiFlowing)
+            det_vf = model.detachment(velFlowingCenters)
+
+            # region-local particle (X) and liquid (S) concentrations
+            Xb = globalMatrix ./ (phiBiofilm .+ _REALMIN)
+            Sb = globalEnclosedL ./ (phiBiofilm .+ _REALMIN)
+            Xe = localEnclosedX
+            Se = globalEnclosedL ./ (phiEnclosed .+ _REALMIN)
+            Xf = localFlowingX
+            Sf = localFlowingS
+
+            # max |liquid-consumption bound| over cells/liquids for the two
+            # growth reactions (HET, PHO = particle columns 1, 2)
+            maxabsL(X, S) = begin
+                m = 0.0
+                @inbounds for n in 1:N, l in 1:kL
+                    acc = 0.0
+                    for j in 1:2
+                        acc += sigmaL[l, j] * muRates[j] * X[n, j] / (S[n, l] + K_CFL[l, j])
+                    end
+                    m = max(m, abs(acc))
+                end
+                m
+            end
+            L_b = maxabsL(Xb, Sb); L_e = maxabsL(Xe, Se); L_f = maxabsL(Xf, Sf)
+
+            # hydrolysis quotient monod (POM/HET = particle columns 3, 1)
+            maxXi(X) = maximum(replace(X[:, 3] ./ (X[:, 3] .+ K_Hyd .* X[:, 1]), NaN => 0.0))
+            s35mu5 = abs(sigmaP[3, 5]) * muRates[5]
+            ws_t0 = max(abs(sigmaP[1, 3]) * muRates[3], abs(sigmaP[2, 4]) * muRates[4])
+
+            w_v = [2vbmax, 2vbmax, 2vbmax, 2vfmax, 2vfmax]
+            w_a = [0.0, 0.0, 0.0,
+                   2vfmax * alphaP * (1 + 1 / (1 - maxPhib)),
+                   2vfmax * alphaL * (1 + 1 / (1 - maxPhib))]
+            w_b = [maximum(det_vf),
+                   maximum(attachment_rates) * maximum(attEnclosedFactor) + maximum(transport_particle_rates) / beta,
+                   max(maximum(transport_liquid_rates) / beta, 1 / tau),
+                   maximum(attachment_rates) * maximum(attFlowingFactor) + maximum(transport_particle_rates) / beta * phie_f_max,
+                   maximum(transport_liquid_rates) / beta * phie_f_max]
+            w_s = [max(ws_t0, s35mu5 * maxXi(Xb)),
+                   max(ws_t0, s35mu5 * maxXi(Xe)),
+                   L_b + L_e,
+                   max(ws_t0, s35mu5 * maxXi(Xf)),
+                   L_f]
+
+            dt_CFL = cfl_factor / maximum(w_v ./ dz .+ w_a ./ dz^2 .+ w_b .+ w_s)
+            dt = min(dt_CFL, (1 + adaptive_time_tolerance) * dt, adaptive_max_dt)
+        end
+
         zrowB = zeros(1, 2kP + kL)
         zrowF = zeros(1, kP + kL)
 
@@ -380,6 +467,13 @@ function simulate(state::State;
     results.frames[:velocity_flowing] = velFramesFlowing
     results.time_final = t
     results.simulation_data[:time_final] = t
-    results.simulation_data[:time_step] = dt
+    # For adaptive runs keep the "adaptive" marker (record the last dt separately);
+    # for fixed runs store the constant dt.
+    if is_adaptive
+        results.simulation_data[:time_step] = "adaptive"
+        results.simulation_data[:final_dt] = dt
+    else
+        results.simulation_data[:time_step] = dt
+    end
     return results
 end

@@ -320,6 +320,32 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test [r.is_light_dependent for r in m.reactions] == [false, true, false, false, false]
     end
 
+    @testset "adaptive CFL time-stepping" begin
+        f = addgridpoints(SandFilter(), 20)
+        m = modelLund()
+        inflow = Float64[1e-2, 1e-3, 0.0, 1e-4, 1e-2, 5e-3, 4e-3, 1e-4, 1.0]
+
+        # Adaptive run completes; dt ramps up so many steps fit a long horizon
+        # that a fixed 1e-10 step never could in the same wall time.
+        r = simulate(State(f, m); inflow_concentrations=inflow, simulation_time=1e-5,
+                     time_step=:adaptive, adaptive_initial_dt=1e-10,
+                     adaptive_max_dt=1e-6, cfl_factor=0.99, n_frames=5, quiet=true)
+        @test r.flag == "OK"
+        @test r.simulation_data[:time_step] == "adaptive"
+
+        # Capping the adaptive step at AdaptiveMaxDt reproduces the fixed step
+        # exactly (dt is clamped to the cap every iteration).
+        rF = simulate(State(f, m); inflow_concentrations=inflow, simulation_time=3e-10,
+                      time_step=1e-10, n_frames=4, quiet=true)
+        rA = simulate(State(f, m); inflow_concentrations=inflow, simulation_time=3e-10,
+                      time_step=:adaptive, adaptive_initial_dt=1e-10,
+                      adaptive_max_dt=1e-10, n_frames=4, quiet=true)
+        @test rF.flag == rA.flag
+        @test times(rF) == times(rA)
+        @test concentration(rF, "HET", :flowing) == concentration(rA, "HET", :flowing)
+        @test concentration(rF, "DOM", :flowing) == concentration(rA, "DOM", :flowing)
+    end
+
     # Golden-master parity vs MATLAB. Runs against the committed reference
     # (test/golden/reference/, produced by export_reference.m) by default; set
     # MPCSSF_GOLDEN_REF to compare against a freshly exported reference instead.

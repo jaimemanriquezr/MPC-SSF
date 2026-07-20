@@ -69,6 +69,11 @@ has a MATLAB reference to validate against.
       under `test/golden/reference/`; runs by default in `Pkg.test`. Also ported
       `modelLund` and `simpleModel` presets. (SimpleModel is the validation
       vehicle because clean modelLund trips a negativity guard at step 1.)
-- [ ] Add adaptive time-stepping (after MATLAB).
+- [x] Add adaptive time-stepping. DONE: `time_step=:adaptive` in simulate.jl
+      ports the MATLAB CFL path (options cfl_factor, adaptive_velocity_factor,
+      adaptive_time_tolerance, adaptive_initial_dt, adaptive_max_dt). Validated:
+      capped adaptive == fixed step bit-for-bit; Julia CFL plateau dt 9.3887e-8
+      matches MATLAB 9.389e-8. Assumes Lund model structure, as the reference
+      does. (MATLAB side is on branch `matlab-claude`.)
 - [ ] Add pathogen model (after MATLAB).
 - [ ] Port richer results/plotting.
