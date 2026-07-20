@@ -286,7 +286,12 @@ while t < timeStart + simulationTime
     light = filter.LightIrradiation(t);
     lightAttenuated = light * exp(-eta) / lightOptimal;
     lightEffective = lightAttenuated.*exp(1 - lightAttenuated);
-    lightFactor(:, lightDependency) = (minimumLight + lightEffective + abs(minimumLight + lightEffective))/2;
+    % Dark-respiration FLOOR (authoritative slow-sand-filtration form
+    % I = max(fdark, I_eff*e^{1-I_eff}); @SDfilter/run_biofilm.m, run_pathogen.m).
+    % Was the additive (minimumLight + lightEffective + |...|)/2 = max(0, min+eff),
+    % which double-counts the baseline at high light. MinimumLightFactor stands in
+    % for the global dark_respiration. Equal to the old form when either is 0.
+    lightFactor(:, lightDependency) = max(minimumLight, lightEffective);
 
     ecoRxBiofilm = evaluateReactions(localBiofilm, listK, phiBiofilm, muRates, lightFactor, listOrder);
     ecoRxEnclosed = evaluateReactions(localEnclosed, listK, phiEnclosed, muRates, lightFactor, listOrder);
