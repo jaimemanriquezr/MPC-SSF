@@ -60,9 +60,15 @@ has a MATLAB reference to validate against.
         NOT yet validated numerically vs MATLAB (needs golden-master data).
   - [x] Results — frame container + accessors (`concentration`,
         `get_volume_fractions`, `times`, `depths`); plotting deferred. With tests.
-- [ ] Golden-master tests vs. MATLAB reference outputs (the remaining gap:
-      everything is structurally tested but NOT yet validated numerically
-      against MATLAB — needs reference data exported from a MATLAB run).
+- [x] Golden-master tests vs. MATLAB reference outputs. DONE (branch
+      `matlab-claude`): `julia/test/golden/` runs an identical SimpleModel
+      simulation in MATLAB (`export_reference.m`) and Julia (`compare.jl`) and
+      diffs every field. Ran in a real Julia runtime — flags agree (OK) and all
+      fields match (non-flowing ~1e-15, flowing ~9e-9 abs / ~6.5e-8 rel, the
+      latter accumulated cross-language float, not a bug). Committed reference
+      under `test/golden/reference/`; runs by default in `Pkg.test`. Also ported
+      `modelLund` and `simpleModel` presets. (SimpleModel is the validation
+      vehicle because clean modelLund trips a negativity guard at step 1.)
 - [ ] Add adaptive time-stepping (after MATLAB).
 - [ ] Add pathogen model (after MATLAB).
 - [ ] Port richer results/plotting.
