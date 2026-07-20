@@ -71,6 +71,42 @@ end
 _light_factor_floor(light_effective::AbstractVector, min_light::AbstractVector) =
     max.(reshape(min_light, 1, :), light_effective)
 
+# Adaptive-CFL source bounds (Diehl2025 Theorem 1 / Section 3.7). These are the
+# per-step reaction contributions to the time-step bound. They are typed
+# top-level functions rather than closures defined inside the time loop: as
+# closures capturing the loop's variables they were boxed/type-unstable and
+# became the single largest per-step hotspot. The numerics are unchanged
+# (identical loop order and arithmetic), so golden masters stay bit-identical.
+
+# Liquid-consumption bound for regions Le/Lf: max over cells n and liquids l of
+# |Σ_{j∈{growth}} σ_L[l,j]·μ_j·X[n,j] / (S[n,l] + K[l,j])|. Only the two growth
+# reactions (particle columns 1, 2) enter the bound.
+function _cfl_liquid_bound(X::AbstractMatrix, S::AbstractMatrix,
+                           sigmaL::AbstractMatrix, muRates::AbstractVector,
+                           K_CFL::AbstractMatrix, kL::Integer)
+    m = 0.0
+    @inbounds for n in axes(X, 1), l in 1:kL
+        acc = 0.0
+        for j in 1:2
+            acc += sigmaL[l, j] * muRates[j] * X[n, j] / (S[n, l] + K_CFL[l, j])
+        end
+        m = max(m, abs(acc))
+    end
+    return m
+end
+
+# Hydrolysis quotient bound for the particle regions: max over cells of
+# X_POM / (X_POM + K_hyd·X_HET) (columns 3 and 1); 0/0 ⇒ 0 (matches NaN→0).
+function _cfl_hydrolysis_bound(X::AbstractMatrix, K_Hyd::Real)
+    m = 0.0
+    @inbounds for n in axes(X, 1)
+        den = X[n, 3] + K_Hyd * X[n, 1]
+        xi = den == 0 ? 0.0 : X[n, 3] / den
+        m = max(m, xi)
+    end
+    return m
+end
+
 # Port of the evaluateReactions subfunction. `phi` is per-cell; returns nCells×nRx.
 function _evaluate_reactions(local_, kernel, phi, muRates, lightFactor)
     nCells = size(local_, 1)
@@ -386,23 +422,13 @@ function simulate(state::State;
             Xf = localFlowingX
             Sf = localFlowingS
 
-            # max |liquid-consumption bound| over cells/liquids for the two
-            # growth reactions (HET, PHO = particle columns 1, 2)
-            maxabsL(X, S) = begin
-                m = 0.0
-                @inbounds for n in 1:N, l in 1:kL
-                    acc = 0.0
-                    for j in 1:2
-                        acc += sigmaL[l, j] * muRates[j] * X[n, j] / (S[n, l] + K_CFL[l, j])
-                    end
-                    m = max(m, abs(acc))
-                end
-                m
-            end
-            L_b = maxabsL(Xb, Sb); L_e = maxabsL(Xe, Se); L_f = maxabsL(Xf, Sf)
+            # liquid-consumption bound (growth reactions) per region
+            L_b = _cfl_liquid_bound(Xb, Sb, sigmaL, muRates, K_CFL, kL)
+            L_e = _cfl_liquid_bound(Xe, Se, sigmaL, muRates, K_CFL, kL)
+            L_f = _cfl_liquid_bound(Xf, Sf, sigmaL, muRates, K_CFL, kL)
 
             # hydrolysis quotient monod (POM/HET = particle columns 3, 1)
-            maxXi(X) = maximum(replace(X[:, 3] ./ (X[:, 3] .+ K_Hyd .* X[:, 1]), NaN => 0.0))
+            maxXi(X) = _cfl_hydrolysis_bound(X, K_Hyd)
             s35mu5 = abs(sigmaP[3, 5]) * muRates[5]
             ws_t0 = max(abs(sigmaP[1, 3]) * muRates[3], abs(sigmaP[2, 4]) * muRates[4])
 
