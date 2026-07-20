@@ -101,12 +101,18 @@ has a MATLAB reference to validate against.
       `Particle.sand_attachment_factor` (splits flowing attachment into a
       sand vs. biofilm term). 201 tests pass; preset + kinetics + smoke tests
       added.
-      Phase 2 (TODO): golden-master validation vs. `@SDfilter/run_pathogen.m`
-      (`slow-sand-filtration`). Needs reconciling the light/dark-respiration
-      model (Julia uses per-reaction `minimum_light_factor`; MATLAB uses a
-      global `fdark = dark_respiration`) and building an
-      `export_pathogen_reference.m` / `compare_pathogen.jl` harness. Detachment
-      is a preset default here; pathogen batch runs override it.
+      Phase 2 DONE (commit c632266): golden-master vs the authoritative
+      `@SDfilter/run_pathogen.m` + `thesis_model.mat` (`slow-sand-filtration`).
+      Harness `export_pathogen_reference.m` / `run_export_pathogen.m` /
+      `compare_pathogen.jl`, committed reference `reference_pathogen/`, runs in
+      `Pkg.test`. A seeded mature biofilm makes the biofilm-phase reactions fire
+      (death, hydrolysis, inactivation, bacterivory); `sand_pathogen=0.1` +
+      `water_factor=1e-3` cover the two solver knobs. MATCH within the standard
+      `atol=1e-7`/`rtol=1e-6` (worst ~2.5e-8); residual is accumulated
+      cross-implementation float (0 at t=0, super-linear in step count).
+      Follow-up (deferred): `dark_respiration>0` needs a light-model
+      reconciliation — Julia adds per-reaction `minimum_light_factor`, MATLAB
+      floors with a global `fdark` — before that regime can be golden-mastered.
 - [x] Port richer results/plotting. DONE: Makie plots via package extension
       (`ext/MPCSSFMakieExt.jl`) + `Results` accessors; see the plotting item above.
 
