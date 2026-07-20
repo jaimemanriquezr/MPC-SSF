@@ -46,6 +46,7 @@ include("Results.jl")
 
 # ---- presets ----------------------------------------------------------------
 include("presets/modelLund.jl")
+include("presets/simpleModel.jl")
 
 export Component, Particle, Liquid, Reaction
 export compute_rate, lookup_order, lookup_half_saturation_constants,
@@ -61,6 +62,6 @@ export Model, particles, liquids, compute_reaction_rates,
 export State, GlobalConcentration, Velocity, global_concentration_biofilm,
        global_concentration_flowing, volume_fractions, simulate
 export Results, concentration, get_volume_fractions, times, depths
-export modelLund
+export modelLund, simpleModel
 
 end # module MPCSSF
