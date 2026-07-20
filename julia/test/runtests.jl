@@ -346,6 +346,45 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test concentration(rF, "DOM", :flowing) == concentration(rA, "DOM", :flowing)
     end
 
+    @testset "run chaining (resume + concatenate)" begin
+        f = addgridpoints(SandFilter(), 20)
+        m = simpleModel()
+        inflow = Float64[1e-2, 0.0, 1.0]
+        T = 5e-4; dt = 1e-5   # T is an exact multiple of dt so the grids align
+
+        rfull = simulate(State(f, m); inflow_concentrations=inflow,
+                         simulation_time=2T, time_step=dt, n_frames=5, quiet=true)
+        r1 = simulate(State(f, m); inflow_concentrations=inflow,
+                      simulation_time=T, time_step=dt, n_frames=5, quiet=true)
+        s = final_state(r1)
+        @test s.time ≈ r1.time_final
+        @test s isa State
+        r2 = simulate(s; inflow_concentrations=inflow, simulation_time=T,
+                      time_step=dt, n_frames=5, quiet=true)
+
+        # resuming reproduces the continuous run exactly (T is on the dt grid)
+        @test concentration(rfull, "Microorganism", :flowing)[:, end] ==
+              concentration(r2, "Microorganism", :flowing)[:, end]
+        @test concentration(rfull, "Nutrient", :flowing)[:, end] ==
+              concentration(r2, "Nutrient", :flowing)[:, end]
+
+        # concatenate joins the two runs, dropping r2's duplicated first frame
+        rcat = r1 + r2
+        @test rcat.time_start == r1.time_start
+        @test rcat.time_final == r2.time_final
+        @test rcat.flag == "OK"
+        @test length(times(rcat)) == length(times(r1)) + length(times(r2)) - 1
+        @test issorted(times(rcat)) && allunique(times(rcat))
+        @test size(concentration(rcat, "Microorganism", :flowing), 2) == length(times(rcat))
+
+        # incompatible joins error
+        @test_throws Exception concatenate(r1, r1)   # r1.time_start ≠ r1.time_final
+        # UNINITIATED is the identity element
+        blank = Results(f, m)
+        @test (blank + r1).flag == r1.flag
+        @test (r1 + blank).flag == r1.flag
+    end
+
     # Golden-master parity vs MATLAB. Runs against the committed reference
     # (test/golden/reference/, produced by export_reference.m) by default; set
     # MPCSSF_GOLDEN_REF to compare against a freshly exported reference instead.

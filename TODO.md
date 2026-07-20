@@ -75,5 +75,13 @@ has a MATLAB reference to validate against.
       capped adaptive == fixed step bit-for-bit; Julia CFL plateau dt 9.3887e-8
       matches MATLAB 9.389e-8. Assumes Lund model structure, as the reference
       does. (MATLAB side is on branch `matlab-claude`.)
+- [x] Adaptive-CFL golden-master. DONE: `export_adaptive_reference.m` /
+      `compare_adaptive.jl` diff the per-step dt trajectory + frames of adaptive
+      modelLund vs MATLAB. Exact match — same 228 steps, all fields ~1e-15.
+      Reference under `test/golden/reference_adaptive/`; runs in `Pkg.test`.
+- [x] Run chaining (Julia). DONE: `final_state(results)` rebuilds a resumable
+      State from a frame (port of `@SDresults/get_filter_state`), and
+      `concatenate(r1,r2)` / `r1 + r2` join runs. Validated: resuming reproduces
+      a continuous run bit-for-bit. (`src/chaining.jl`.)
 - [ ] Add pathogen model (after MATLAB).
 - [ ] Port richer results/plotting.

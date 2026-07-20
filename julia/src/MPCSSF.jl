@@ -44,6 +44,9 @@ include("simulate.jl")
 # ---- post-processing --------------------------------------------------------
 include("Results.jl")
 
+# ---- run chaining (resume + concatenate) ------------------------------------
+include("chaining.jl")
+
 # ---- presets ----------------------------------------------------------------
 include("presets/modelLund.jl")
 include("presets/simpleModel.jl")
@@ -62,6 +65,7 @@ export Model, particles, liquids, compute_reaction_rates,
 export State, GlobalConcentration, Velocity, global_concentration_biofilm,
        global_concentration_flowing, volume_fractions, simulate
 export Results, concentration, get_volume_fractions, times, depths
+export final_state, concatenate
 export modelLund, simpleModel
 
 end # module MPCSSF
