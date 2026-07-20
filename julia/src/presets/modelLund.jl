@@ -1,0 +1,94 @@
+# Port of src/presets/modelLund.m
+#
+# The "Lund" / "Rosenqvist" preset: a 9-component (4 particulate, 5 dissolved),
+# 5-reaction ecological model with a Cahn-Hilliard cohesion submodel. Values are
+# copied verbatim from modelLund.m so the two codebases share an identical model
+# for golden-master validation.
+#
+# MATLAB builds the CohesionSubModel from the Kappa/Zeta0/Zeta1 arguments passed
+# to Model(...); here we construct the CahnHilliardModel explicitly (its
+# mobility/potential-gradient defaults already mirror CahnHilliardModel.m). The
+# MATLAB DetachmentFunction is the one-arg `@(v) sqrt(v / 7.2)`.
+
+"""
+    modelLund() -> Model
+
+The Lund/Rosenqvist preset model (port of `presets/modelLund.m`): heterotrophs
+(HET), phototrophs (PHO), particulate organic matter (POM) and a pathogen
+indicator (PAT) as particulates; O2, IC, NH4, HPO4, DOM as liquids; five
+reactions (heterotroph/phototroph growth and death, hydrolysis). Used as the
+shared reference model for MATLAB↔Julia validation.
+"""
+function modelLund()
+    density_particle = 1.117e3
+    attenuation_particle = 0.094
+    dispersivity_particle = 1.20e-2
+
+    HET = Particle(name="HET", density=density_particle, dispersivity=dispersivity_particle,
+                   transport_rate=5.47, attachment_sand=5.47e2, attachment_matrix=5.47e2,
+                   attenuation=attenuation_particle)
+    PHO = Particle(name="PHO", density=density_particle, dispersivity=dispersivity_particle,
+                   transport_rate=5.47, attachment_sand=5.47e2, attachment_matrix=5.47e2,
+                   attenuation=attenuation_particle)
+    POM = Particle(name="POM", density=density_particle, dispersivity=dispersivity_particle,
+                   transport_rate=5.47, attachment_sand=0.0, attachment_matrix=0.0,
+                   attenuation=attenuation_particle)
+    PAT = Particle(name="PAT", density=density_particle, dispersivity=dispersivity_particle,
+                   transport_rate=5.47, attachment_sand=5.47e2, attachment_matrix=5.47e2,
+                   attenuation=attenuation_particle)
+
+    density_liquid = 0.998e3
+    dispersivity_liquid = 1.20e-2
+
+    O2   = Liquid(name="O2",   density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e1)
+    IC   = Liquid(name="IC",   density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e1)
+    NH4  = Liquid(name="NH4",  density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e1)
+    HPO4 = Liquid(name="HPO4", density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e1)
+    DOM  = Liquid(name="DOM",  density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e1)
+
+    heterotroph_growth = Reaction(name="Heterotroph growth", is_light_dependent=false,
+        nominal_rate=1.81e-2, temperature_correction_factor=1.047,
+        order=Dict("HET" => 1.0),
+        half_saturation_constants=Dict("O2" => 3.00e-3, "DOM" => 2.00e-4,
+                                       "NH4" => 4.00e-3, "HPO4" => 1.40e-8),
+        stoichiometric_coefficients=Dict("HET" => 1.0, "O2" => -1.2317, "IC" => 0.3848,
+                                         "NH4" => -0.0248, "HPO4" => -0.0141, "DOM" => -1.5873))
+
+    phototroph_growth = Reaction(name="Phototroph growth", is_light_dependent=true,
+        minimum_light_factor=0.01, optimal_light_factor=1.814e-2,
+        nominal_rate=5.50, temperature_correction_factor=1.047,
+        order=Dict("PHO" => 1.0),
+        half_saturation_constants=Dict("IC" => 2.00e-5, "NH4" => 1.20e-2, "HPO4" => 1.68e-4),
+        stoichiometric_coefficients=Dict("PHO" => 1.0, "O2" => 0.9301, "IC" => -0.3600,
+                                         "NH4" => -0.0600, "HPO4" => -0.0100))
+
+    heterotroph_death = Reaction(name="Heterotroph death", is_light_dependent=false,
+        nominal_rate=2.00, temperature_correction_factor=1.066,
+        order=Dict("HET" => 1.0),
+        stoichiometric_coefficients=Dict("HET" => -1.0, "POM" => 0.9123, "O2" => 0.0234,
+                                         "NH4" => 0.0653, "HPO4" => 0.0209))
+
+    phototroph_death = Reaction(name="Phototroph death", is_light_dependent=false,
+        nominal_rate=4.00e-1, temperature_correction_factor=1.080,
+        order=Dict("PHO" => 1.0),
+        stoichiometric_coefficients=Dict("PHO" => -1.0, "POM" => 0.6316, "O2" => 0.2005,
+                                         "NH4" => 0.0221, "HPO4" => 0.0037))
+
+    hydrolysis = Reaction(name="Hydrolysis", is_light_dependent=false,
+        nominal_rate=9.00e-2, temperature_correction_factor=1.080,
+        order=Dict("HET" => 1.0),
+        half_saturation_constants=Dict("POM/HET" => 2.00e-5),
+        stoichiometric_coefficients=Dict("POM" => -1.0, "DOM" => 1.0))
+
+    components = Component[HET, PHO, POM, PAT, O2, IC, NH4, HPO4, DOM]
+    reactions  = Reaction[heterotroph_growth, phototroph_growth,
+                          heterotroph_death, phototroph_death, hydrolysis]
+
+    cohesion = CahnHilliardModel(kappa=1.00e-6, zeta_0=1.00e6, zeta_1=1/100)
+
+    return Model(components, reactions;
+                 cohesion_submodel=cohesion,
+                 biofilm_porosity=0.99,
+                 osmosis_rate=1.00e-7,
+                 detachment=(v -> sqrt.(v ./ 7.2)))
+end

@@ -270,4 +270,53 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         res.frames[:concentration_biofilm][1, 1, 1] = 1000.0
         @test get_volume_fractions(res).matrix[1, 1] ≈ 1.0
     end
+
+    @testset "modelLund preset" begin
+        m = modelLund()
+        # 9 components (4 particulate, 5 dissolved), 5 reactions.
+        @test length(m.components) == 9
+        @test length(particles(m)) == 4
+        @test length(liquids(m)) == 5
+        @test [c.name for c in particles(m)] == ["HET", "PHO", "POM", "PAT"]
+        @test [c.name for c in liquids(m)] == ["O2", "IC", "NH4", "HPO4", "DOM"]
+        @test length(m.reactions) == 5
+
+        # Global params + cohesion submodel (verbatim from modelLund.m).
+        @test m.biofilm_porosity == 0.99
+        @test m.osmosis_rate == 1.00e-7
+        @test m.cohesion_submodel.kappa == 1.00e-6
+        @test m.cohesion_submodel.zeta_0 == 1.00e6
+        @test m.cohesion_submodel.zeta_1 == 1/100
+        # Detachment @(v) sqrt(v/7.2): scalar and vector.
+        @test m.detachment(7.2) ≈ 1.0
+        @test m.detachment([7.2, 28.8]) ≈ [1.0, 2.0]
+
+        # Particle physical params (shared across the four particulates).
+        het = particles(m)[1]
+        @test het.density ≈ 1.117e3
+        @test het.attenuation ≈ 0.094
+        @test het.transport_rate ≈ 5.47
+        @test het.attachment_sand ≈ 5.47e2
+        # POM does not attach.
+        @test particles(m)[3].attachment_sand == 0.0
+
+        # Derived matrices have the right shape and a couple of known entries.
+        σ = stoichiometric_coefficients(m)          # 9 × 5
+        @test size(σ) == (9, 5)
+        @test σ[1, 1] == 1.0                         # HET in heterotroph growth
+        @test σ[5, 1] ≈ -1.2317                      # O2 in heterotroph growth
+        @test size(stoichiometric_matrix_particles(m)) == (4, 5)
+        @test size(stoichiometric_matrix_liquids(m)) == (5, 5)
+        @test size(reaction_orders(m)) == (9, 5)
+
+        # Hydrolysis carries a POM/HET quotient (5th reaction).
+        q = quotients(m)
+        @test length(q.num_idx) == 1
+        @test q.num_idx[1] == 3                       # POM
+        @test q.den_idx[1] == 1                       # HET
+        @test q.K[1, 5] ≈ 2.00e-5
+
+        # Phototroph growth is the only light-dependent reaction.
+        @test [r.is_light_dependent for r in m.reactions] == [false, true, false, false, false]
+    end
 end
