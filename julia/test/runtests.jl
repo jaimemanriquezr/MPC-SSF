@@ -271,6 +271,43 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test get_volume_fractions(res).matrix[1, 1] ≈ 1.0
     end
 
+    @testset "plotting" begin
+        # Reaction-rate frame accessors (feed plot_reaction_rates). Two named
+        # reactions so column order and labels can be checked.
+        f = addgridpoints(SandFilter(), 20)
+        het = Particle(name="HET", density=1000.0)
+        dom = Liquid(name="DOM", density=998.0)
+        rx1 = Reaction(name="growth", nominal_rate=0.0, optimal_light_factor=1.0,
+                       order=Dict("HET"=>1.0))
+        rx2 = Reaction(name="decay", nominal_rate=0.0, order=Dict("HET"=>1.0),
+                       stoichiometric_coefficients=Dict("HET"=>-1.0))
+        ch = CahnHilliardModel(kappa=1e-3, zeta_0=0.5)
+        m = Model([het, dom], [rx1, rx2]; cohesion_submodel=ch)
+        res = simulate(State(f, m); simulation_time=1e-4, time_step=1e-5,
+                       n_frames=4, quiet=true)
+
+        N = length(f.grid.centers)
+        rr = reaction_rates(res)
+        @test size(rr) == (N, 4, 2)                  # depth × frame × reaction
+        @test rr === res.frames[:reaction_rates]
+        @test all(==(0), rr)                          # zero nominal rate ⇒ no reaction
+        @test reaction_names(res) == ["growth", "decay"]
+
+        # Without a Makie backend loaded, every plot generic hits the friendly
+        # fallback: an ArgumentError-free `error` naming the function and Makie.
+        for (fn, call) in (
+                ("plot_concentration",         () -> plot_concentration(res, "HET", :flowing)),
+                ("plot_concentration_heatmap", () -> plot_concentration_heatmap(res, "HET", :flowing)),
+                ("plot_volume_fractions",      () -> plot_volume_fractions(res)),
+                ("plot_velocity",              () -> plot_velocity(res)),
+                ("plot_cfl",                   () -> plot_cfl(res)),
+                ("plot_reaction_rates",        () -> plot_reaction_rates(res)))
+            err = try; call(); nothing; catch e; e; end
+            @test err isa ErrorException
+            @test occursin(fn, err.msg) && occursin("Makie", err.msg)
+        end
+    end
+
     @testset "modelLund preset" begin
         m = modelLund()
         # 9 components (4 particulate, 5 dissolved), 5 reactions.

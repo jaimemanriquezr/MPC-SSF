@@ -14,10 +14,14 @@ re-introduce the publication features on the new class-based design.
 - [ ] **Pathogen model.** Add pathogen particle component + dispatch (biofilm vs.
       pathogen run), sand-vs-biofilm attachment (`sand_pathogen`), bacterivory /
       predation (`kPred`), and flowing-phase `water_factor`.
-- [ ] **Richer results & plotting.** Port useful `@SDresults` plots
-      (`plot_CFL`, `plot_biofilm_*`, `plot_concentration_3D/line`,
-      `plot_subphases`, `plot_velocity`) and `get_*` accessors into `@Results`.
-- [ ] **Run chaining.** `concatenate`/`plus` to resume/append simulations.
+- [x] **Richer results & plotting.** DONE: `get_*` accessors on `Results`
+      (`reaction_rates`/`reaction_names`, `get_volume_fractions`, `times`,
+      `depths`, `concentration`) plus six Makie plots via a package extension
+      (`ext/MPCSSFMakieExt.jl`): `plot_concentration`, `plot_concentration_heatmap`,
+      `plot_volume_fractions`, `plot_velocity`, `plot_cfl`, `plot_reaction_rates`.
+      Core stays Makie-free; plots load on `using CairoMakie`. Accessors and the
+      no-backend fallback path are covered in the test suite.
+- [x] **Run chaining.** `concatenate`/`plus` to resume/append simulations.
 - [ ] **HPC/batch tooling.** Decide whether to re-add `slurm/` + `simulate_filter`
       entry point.
 - [ ] **Diagnostics.** `print_*` and `*_error` helpers as needed.
@@ -84,4 +88,5 @@ has a MATLAB reference to validate against.
       `concatenate(r1,r2)` / `r1 + r2` join runs. Validated: resuming reproduces
       a continuous run bit-for-bit. (`src/chaining.jl`.)
 - [ ] Add pathogen model (after MATLAB).
-- [ ] Port richer results/plotting.
+- [x] Port richer results/plotting. DONE: Makie plots via package extension
+      (`ext/MPCSSFMakieExt.jl`) + `Results` accessors; see the plotting item above.
