@@ -43,8 +43,16 @@ classdef Model
                 input.Reactions = Reaction.empty;
                 input.Preset = string.empty;
             end
-            input.Components = components;
-            input.Reactions = reactions;
+            % Positional args override the name-value defaults only when
+            % actually supplied; otherwise a name-value call
+            % (Model(Components=..., Reactions=...), as modelLund uses) would be
+            % clobbered by the empty positional defaults.
+            if ~isempty(components)
+                input.Components = components;
+            end
+            if ~isempty(reactions)
+                input.Reactions = reactions;
+            end
             switch input.Preset
                 case string.empty
                     propNames = string(properties(obj));

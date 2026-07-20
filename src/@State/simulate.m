@@ -9,6 +9,17 @@ arguments
     parameters.CloggingFraction (1,1) {mustBeNumeric} = .99;
     parameters.IsUpwinded (1,1) = false;
     parameters.Quiet = false;
+
+    % Adaptive (CFL) time-stepping: set TimeStep="adaptive" to enable. Ported
+    % from slow-sand-filtration @SDfilter/run_biofilm.m (the authoritative
+    % reference). Assumes the Lund/Rosenqvist model structure (5 reactions in
+    % the order growth/growth/death/death/hydrolysis; particles HET,PHO,POM,PAT;
+    % liquids incl. the two growth half-saturations) -- see modelLund.
+    parameters.CFLFactor (1,1) {mustBeNumeric} = .99;
+    parameters.AdaptiveVelocityFactor (1,1) {mustBeNumeric} = 0;
+    parameters.AdaptiveTimeTolerance (1,1) {mustBeNumeric} = 1e-3;
+    parameters.AdaptiveInitialDt (1,1) {mustBeNumeric} = 5e-7;
+    parameters.AdaptiveMaxDt (1,1) {mustBeNumeric} = 5e-7;
 end
 if ~isempty(options)
     for field = string(fieldnames(options)).'
@@ -153,11 +164,44 @@ counter = counter + 1;
 %=========================================================================%
 
 %=============== VI. TIME INTEGRATION ====================================%
-dt = timeStep;
-results.SimulationData.TimeStep = dt;
+% Time-stepping mode: a numeric TimeStep is a fixed dt; TimeStep="adaptive"
+% recomputes dt each step from a per-step CFL bound (ported from
+% slow-sand-filtration @SDfilter/run_biofilm.m).
+if isnumeric(timeStep)
+    adaptivity = "fixed";
+    dt = timeStep;
+    results.SimulationData.TimeStep = dt;
+else
+    adaptivity = "adaptive";
+    dt = parameters.AdaptiveInitialDt;
+    results.SimulationData.TimeStep = "adaptive";
+end
+cflFactor = parameters.CFLFactor;
+adaptiveVelocityFactor = parameters.AdaptiveVelocityFactor;
+adaptiveTimeTolerance = parameters.AdaptiveTimeTolerance;
+adaptiveMaxDt = parameters.AdaptiveMaxDt;
+
+% CFL constants (Lund-structured model assumption; see the arguments block).
+alphaP = alpha(1);
+alphaL = alpha(kP + 1);
+% liquid half-saturation constants for the two growth reactions; absent -> inf
+% so the corresponding 1/(S+K) contribution vanishes.
+halfSatLiquids = model.HalfSaturationConstants(kP+1:kP+kL, :);
+K_HetGrowth = halfSatLiquids(:, 1); K_HetGrowth(isnan(K_HetGrowth)) = inf;
+K_PhoGrowth = halfSatLiquids(:, 2); K_PhoGrowth(isnan(K_PhoGrowth)) = inf;
+K_CFL = [K_HetGrowth, K_PhoGrowth];
+% hydrolysis quotient (POM/HET) half-saturation constant
+if isempty(quotientK)
+    K_Hyd = inf;
+else
+    K_Hyd = max(quotientK(:));
+end
 
 t = timeStart;
-muRates = reshape(model.Reactions.computeRate(temperature), 1, []);
+% Use the Model method (arrayfun over reactions); calling
+% model.Reactions.computeRate(...) on the reaction array returns only the first
+% reaction's rate, which is wrong whenever rates differ between reactions.
+muRates = reshape(model.computeReactionRates(temperature), 1, []);
 lightOptimal = max([model.Reactions.OptimalLightFactor]);
 attenuationParticles = [model.Particles.Attenuation];
 
@@ -302,6 +346,58 @@ while t < timeStart + simulationTime
     velFlowing = [volumeAvgVelocity(1);
         (volumeAvgVelocity(2:end-1) - velBiofilm.*phiBiofilmBoundaries)./(1 - phiBiofilmBoundaries);
         volumeAvgVelocity(end)];
+
+    %===================== TIME ADAPTIVITY (CFL) ==========================%
+    % Per-step CFL bound, ported from slow-sand-filtration
+    % @SDfilter/run_biofilm.m. dt grows by at most (1 + tolerance) per step
+    % toward the CFL limit, capped at AdaptiveMaxDt. Weights: w_v advection,
+    % w_a dispersion, w_b exchange (attach/detach/transfer/osmosis), w_s
+    % ecological source terms; one entry per region (matrix, enclosed P,
+    % enclosed L, flowing P, flowing L).
+    if adaptivity == "adaptive"
+        vbmax = (1 + adaptiveVelocityFactor)*max(abs(velBiofilm));
+        vfmax = (1 + adaptiveVelocityFactor)*max(abs(velFlowing));
+        maxPhib = max(phiBiofilm);
+        phie_f_max = max(phiEnclosed./phiFlowing);
+        det_vf = model.DetachmentFunction(velFlowingCenters);
+
+        % liquid-consumption bound from the two growth reactions (HET, PHO)
+        Xb_r = permute(localBiofilmX(:, [1 2]), [3 2 1]);   % 1 x 2 x N
+        Xe_r = permute(localEnclosedX(:, [1 2]), [3 2 1]);
+        Xf_r = permute(localFlowingX(:, [1 2]), [3 2 1]);
+        sigmaLiquidsGrowth = sigmaLiquids(:, 1:2);          % kL x 2
+        muGrowth = muRates(1:2);                            % 1 x 2
+        L_b = -sum(sigmaLiquidsGrowth.*(muGrowth.*Xb_r)./(permute(localBiofilmS, [2 3 1]) + K_CFL), 2);
+        L_e = -sum(sigmaLiquidsGrowth.*(muGrowth.*Xe_r)./(permute(localEnclosedS, [2 3 1]) + K_CFL), 2);
+        L_f = -sum(sigmaLiquidsGrowth.*(muGrowth.*Xf_r)./(permute(localFlowingS, [2 3 1]) + K_CFL), 2);
+
+        % hydrolysis quotient monod (POM/HET) per region
+        Xi_b = localBiofilmX(:,3)./(localBiofilmX(:,3) + K_Hyd*localBiofilmX(:,1)); Xi_b(isnan(Xi_b)) = 0;
+        Xi_e = localEnclosedX(:,3)./(localEnclosedX(:,3) + K_Hyd*localEnclosedX(:,1)); Xi_e(isnan(Xi_e)) = 0;
+        Xi_f = localFlowingX(:,3)./(localFlowingX(:,3) + K_Hyd*localFlowingX(:,1)); Xi_f(isnan(Xi_f)) = 0;
+
+        % death-reaction source bound (HET death rx 3, PHO death rx 4)
+        ws_t0 = max(abs(sigmaParticles(1,3))*muRates(3), abs(sigmaParticles(2,4))*muRates(4));
+
+        w_v = [2*vbmax*[1 1 1], 2*vfmax*[1 1]];
+        w_a = [0 0 0, ...
+               2*vfmax*alphaP*(1 + 1/(1 - maxPhib)), ...
+               2*vfmax*alphaL*(1 + 1/(1 - maxPhib))];
+        w_b = [max(det_vf), ...
+               max(attachmentRates)*max(attachmentEnclosedFactor) + max(transportParticleRates)/beta, ...
+               max(max(transportLiquidRates)/beta, 1/tau), ...
+               max(attachmentRates)*max(attachmentFlowingFactor) + max(transportParticleRates)/beta*phie_f_max, ...
+               max(transportLiquidRates)/beta*phie_f_max];
+        w_s = [max(ws_t0, abs(sigmaParticles(3,5))*muRates(5)*max(Xi_b)), ...
+               max(ws_t0, abs(sigmaParticles(3,5))*muRates(5)*max(Xi_e)), ...
+               max(abs(L_b), [], 'all') + max(abs(L_e), [], 'all'), ...
+               max(ws_t0, abs(sigmaParticles(3,5))*muRates(5)*max(Xi_f)), ...
+               max(abs(L_f), [], 'all')];
+
+        dt_CFL = cflFactor/max(w_v/dz + w_a/dz^2 + w_b + w_s);
+        dt = min([dt_CFL, (1 + adaptiveTimeTolerance)*dt, adaptiveMaxDt]);
+    end
+    %======================================================================%
 
     %%%% FLUX COMPUTING %%%%
     % BIOFILM
