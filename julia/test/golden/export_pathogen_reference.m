@@ -1,4 +1,15 @@
-function export_pathogen_reference(outdir)
+function export_pathogen_reference(outdir, opts)
+    arguments
+        outdir
+        % Defaults reproduce the baseline reference_pathogen exactly. The light
+        % variant (reference_pathogen_light) overrides dark_respiration and
+        % light_const to exercise the dark-respiration light floor, and seeds a
+        % phototroph-dominant biofilm so the floor genuinely drives the result.
+        opts.dark_respiration (1,1) double = 0.0
+        opts.light_const = []                       % [] => default diel forcing
+        opts.seed_matrix (1,4) double = [0.05, 0.05, 0.02, 0.01]  % HET PHO POM PAT
+        opts.seed_enclosed_liquids (1,1) double = 1e-3
+    end
 % EXPORT_PATHOGEN_REFERENCE  Run the pathogen golden-master simulation using the
 % AUTHORITATIVE slow-sand-filtration code (@SDfilter/run_pathogen.m + the
 % thesis_model.mat pathogen model) and dump the frames as CSV for compare_pathogen.jl.
@@ -32,14 +43,19 @@ function export_pathogen_reference(outdir)
     NFRAMES = 5;
 
     % --- filter (293 K removes the temperature correction) ---------------
-    filter = SDfilter(temperature = 293);
+    if isempty(opts.light_const)
+        filter = SDfilter(temperature = 293);                     % default diel forcing
+    else
+        filter = SDfilter(temperature = 293, ...
+                          light_irradiation = @(t) opts.light_const);  % constant light
+    end
     filter = filter.add_cells(N);
 
     % --- pathogen model, confounders removed -----------------------------
     model = load("thesis_model.mat").model;
     model.ecological.water_factor   = 1e-3;
     model.ecological.sand_pathogen  = 0.1;   % exercise differential PAT->sand attachment
-    model.ecological.dark_respiration = 0.0;
+    model.ecological.dark_respiration = opts.dark_respiration;
     model.detachment = @(v) sqrt(abs(v) / 7.2);
 
     % inflow order: [HET PHO POM PAT | O2 IC NH4 HPO4 DOM]
@@ -52,8 +68,8 @@ function export_pathogen_reference(outdir)
     Nc = numel(filter.mesh.cell_centers);
     ic = struct();
     ic.biofilm = zeros(Nc, 13);
-    ic.biofilm(:, 1:4)  = repmat([0.05, 0.05, 0.02, 0.01], Nc, 1);  % HET PHO POM PAT
-    ic.biofilm(:, 9:13) = 1e-3;                                     % enclosed liquids
+    ic.biofilm(:, 1:4)  = repmat(opts.seed_matrix, Nc, 1);         % HET PHO POM PAT
+    ic.biofilm(:, 9:13) = opts.seed_enclosed_liquids;             % enclosed liquids
     ic.enclosed_water = 0.1 * ones(Nc, 1);
 
     results = run_pathogen(filter, model, ...

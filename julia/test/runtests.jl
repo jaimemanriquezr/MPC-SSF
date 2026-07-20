@@ -442,6 +442,30 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test size(reaction_rates(r), 3) == 7
     end
 
+    @testset "light-factor floor (dark respiration)" begin
+        # The light factor is a FLOOR: max(fdark, I_eff·e^{1-I_eff}), the port of
+        # the authoritative slow-sand-filtration form. This is the reconciliation
+        # away from the old additive max(0, fdark + ...) that MPC-SSF/older Julia
+        # used. The cross-implementation float floor in a full sim masks this
+        # difference, so validate the formula directly.
+        le = [0.0, 0.05, 0.2, 0.8]            # effective light across depth
+        fdark = 0.1
+        lf = MPCSSF._light_factor_floor(le, [fdark])
+        @test vec(lf) ≈ max.(fdark, le)                  # floor form
+        @test vec(lf) == [0.1, 0.1, 0.2, 0.8]            # both branches exercised
+        @test vec(lf) != fdark .+ le                     # NOT the additive form
+        # fdark = 0 reduces to the bare light term (and matches the old additive).
+        @test vec(MPCSSF._light_factor_floor(le, [0.0])) ≈ le
+        # one column per light-dependent reaction
+        lf2 = MPCSSF._light_factor_floor(le, [0.1, 0.3])
+        @test size(lf2) == (4, 2)
+        @test lf2[:, 1] ≈ max.(0.1, le) && lf2[:, 2] ≈ max.(0.3, le)
+        # reproduces the full authoritative chain: I_eff·e^{1-I_eff} then floor
+        ieff = 0.8 .* exp.(-[0.0, 0.5, 2.0]) ./ 1.08
+        le3 = ieff .* exp.(1 .- ieff)
+        @test vec(MPCSSF._light_factor_floor(le3, [0.1])) ≈ max.(0.1, le3)
+    end
+
     @testset "adaptive CFL time-stepping" begin
         f = addgridpoints(SandFilter(), 20)
         m = modelLund()
@@ -542,6 +566,20 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         include(joinpath(@__DIR__, "golden", "compare_pathogen.jl"))
         refdir = get(ENV, "MPCSSF_GOLDEN_PATHOGEN_REF", PGOLD_DEFAULT_REF)
         r = golden_compare_pathogen(refdir; verbose=true)
+        @test r.flags_agree
+        @test r.match
+    end
+
+    # Light-active pathogen golden: constant light + dark_respiration>0 with a
+    # phototroph-heavy seed, vs run_pathogen.m. End-to-end check that light-active
+    # runs reproduce the authoritative code (the dark-respiration light floor is
+    # unit-tested separately — the cross-implementation float floor here, ~3e-7,
+    # is reaction-driven and masks the light-form difference). atol relaxed to
+    # 1e-6 accordingly. See test/golden/README.md.
+    @testset "golden-master vs MATLAB (pathogen, light+dark)" begin
+        refdir = get(ENV, "MPCSSF_GOLDEN_PATHOGEN_LIGHT_REF", PGOLD_LIGHT_REF)
+        r = golden_compare_pathogen(refdir; run_kwargs=PGOLD_LIGHT_RUN,
+                                    atol=1e-6, verbose=true)
         @test r.flags_agree
         @test r.match
     end

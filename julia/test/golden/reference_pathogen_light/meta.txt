@@ -1,0 +1,6 @@
+kP=4
+kL=5
+N=42
+nframes=5
+flag=OK
+names=HET,PHO,POM,PAT,O2,IC,NH4,HPO4,DOM

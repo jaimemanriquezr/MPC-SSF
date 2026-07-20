@@ -111,11 +111,11 @@ numerically comparable:
   *different* temperature-correction formulas — MATLAB `θ^(293−T_K)`, Julia
   `θ^(T_K/293 − 1)` — but both collapse to `μ = nominal` at 293 K / 20 °C, so the
   correction is neutralized.
-- **light**: `dark_respiration = 0` makes MATLAB `max(fdark, I·e^{1−I})` equal
-  Julia `max(0, min_light + I·e^{1−I})`, since the light term is ≥ 0. (For
-  `dark_respiration > 0` the two forms genuinely differ — Julia's per-reaction
-  `minimum_light_factor` is *added*, MATLAB's global `fdark` is a *floor* — so
-  that case needs a light-model reconciliation before it can be golden-mastered.)
+- **light**: the baseline uses `dark_respiration = 0` and the default diel
+  forcing (which is dark, `light = 0`, over the short run), so the light factor
+  is trivially equal on both sides. The `dark_respiration > 0` case is now
+  reconciled and covered by its own variant — see **Light-model reconciliation**
+  below.
 - **detachment**: set to `sqrt(|v|/7.2)` on both sides.
 
 To exercise the pathogen physics the run **seeds a uniform mature biofilm** (a
@@ -142,3 +142,34 @@ differences in the stiff Cahn-Hilliard + osmosis sparse solve (`zeta_0 = 1`,
 difference. Unlike the adaptive master (Julia vs MPC-SSF, same code lineage, so
 ~1e-15), this master crosses to the *independent* publication implementation, so
 some per-step divergence is expected; the short horizon keeps it within tol.
+
+### Light-model reconciliation
+
+The authoritative code applies a **dark-respiration floor** to the light factor:
+`I = max(fdark, I_eff·e^{1−I_eff})` (`@SDfilter/run_biofilm.m:272`,
+`run_pathogen.m`), with a global `fdark = dark_respiration`. MPC-SSF's
+`src/@State/simulate.m:237` and (mirroring it) the original Julia port instead
+used an **additive** form `max(0, minimumLight + I_eff·e^{1−I_eff})`, which
+double-counts the baseline at high light. Since slow-sand-filtration takes
+precedence, the port was switched to the floor form (`_light_factor_floor` in
+`simulate.jl`); the per-reaction `minimum_light_factor` stands in for the global
+`fdark` (only the light-dependent reaction carries it). The two forms coincide
+whenever `fdark = 0` **or** light `= 0`, which is why every prior golden master
+(all run in darkness) was unaffected and still matches.
+
+Two things validate the reconciliation:
+
+- **Unit test** `light-factor floor (dark respiration)` (runtests.jl) checks
+  `_light_factor_floor` reproduces `max(fdark, ·)` on both branches and differs
+  from the additive form. This is the *discriminating* test — see next point for
+  why a golden master cannot be.
+- **Light-active golden** `reference_pathogen_light/` runs `run_pathogen.m` with
+  constant light (`0.8`), `dark_respiration = 0.1`, and a phototroph-heavy seed
+  (both `max` branches straddle `fdark` across depth), exported by the same
+  `run_export_pathogen.m`. Julia matches it within `atol = 1e-6` (worst ~3e-7).
+  **This golden does *not* isolate the light form**: the ~3e-7 residual is
+  reaction-driven cross-implementation float from the stiff CH+osmosis solve, and
+  it is *larger* than the light-form difference itself (the additive form scores
+  the same worst-abs), so it masks it. The golden is therefore an end-to-end
+  "light-active run reproduces the authoritative code" check; the unit test is
+  what proves the floor form is the correct one.

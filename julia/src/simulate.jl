@@ -57,6 +57,20 @@ function _local(X, S, num_idx, den_idx)
     return hcat(XS, Q)
 end
 
+# Dark-respiration light floor. Port of the authoritative slow-sand-filtration
+# form `I = max(fdark, I_eff·e^{1-I_eff})` (@SDfilter/run_biofilm.m,
+# run_pathogen.m): the light factor is at least `min_light` even in darkness — a
+# FLOOR, not an additive offset. The per-reaction `minimum_light_factor` stands
+# in for the global `dark_respiration` (only light-dependent reactions carry it).
+#
+# `light_effective` is the per-cell I_eff·e^{1-I_eff} (length nCells); `min_light`
+# is the floor per light-dependent reaction (length nLightDep). Returns an
+# nCells × nLightDep matrix. NOTE: MPC-SSF's simulate.m and older MPCSSF.jl used
+# the *additive* form `max(0, min_light + light_effective)`, which double-counts
+# the baseline at high light; this floor form supersedes it (see test/golden/README.md).
+_light_factor_floor(light_effective::AbstractVector, min_light::AbstractVector) =
+    max.(reshape(min_light, 1, :), light_effective)
+
 # Port of the evaluateReactions subfunction. `phi` is per-cell; returns nCells×nRx.
 function _evaluate_reactions(local_, kernel, phi, muRates, lightFactor)
     nCells = size(local_, 1)
@@ -294,8 +308,7 @@ function simulate(state::State;
         lightEffective = lightAttenuated .* exp.(1 .- lightAttenuated)
         lightFactor = ones(N, nRx)
         if any(light_dep)
-            tmp = reshape(min_light, 1, :) .+ lightEffective       # N × nLightDep
-            lightFactor[:, light_dep] = max.(0.0, tmp)
+            lightFactor[:, light_dep] = _light_factor_floor(lightEffective, min_light)
         end
 
         # --- ecological + exchange reactions ---

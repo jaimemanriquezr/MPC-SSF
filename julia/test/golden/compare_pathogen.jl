@@ -41,16 +41,28 @@ function _patparse_meta(refdir)
     return meta
 end
 
-"Run the pathogen golden-master simulation in Julia and return its Results."
-function golden_run_pathogen_julia()
-    filter = SandFilter(temperature=20.0)          # 20 C -> theta^0 = 1 (mu = nominal)
-    filter = addgridpoints(filter, PGOLD_N)
-    model  = modelPathogen(water_factor=1e-3, sand_pathogen=0.1, dark_respiration=0.0)
+"""
+    golden_run_pathogen_julia(; dark_respiration=0.0, light_const=nothing,
+                                seed_matrix=PGOLD_SEED_MATRIX,
+                                seed_enclosed_liquids=PGOLD_SEED_ENCL_L) -> Results
+
+Run the pathogen golden-master simulation in Julia. `light_const` (a number) sets
+a constant light forcing; `nothing` keeps the default diel forcing. Keep the
+keyword defaults in sync with `export_pathogen_reference.m`'s option defaults.
+"""
+function golden_run_pathogen_julia(; dark_respiration=0.0, light_const=nothing,
+                                   seed_matrix=PGOLD_SEED_MATRIX,
+                                   seed_enclosed_liquids=PGOLD_SEED_ENCL_L)
+    filter = light_const === nothing ? SandFilter(temperature=20.0) :
+             SandFilter(temperature=20.0, light_irradiation=(_t -> float(light_const)))
+    filter = addgridpoints(filter, PGOLD_N)      # 20 C -> theta^0 = 1 (mu = nominal)
+    model  = modelPathogen(water_factor=1e-3, sand_pathogen=0.1,
+                           dark_respiration=dark_respiration)
     state  = State(filter, model)
     # Seed the same uniform mature biofilm as the MATLAB reference: matrix
     # particles + enclosed liquids + enclosed water (enclosed particles stay 0).
-    state.global_concentration.matrix .= reshape(PGOLD_SEED_MATRIX, 1, :)
-    state.global_concentration.enclosed_liquids .= PGOLD_SEED_ENCL_L
+    state.global_concentration.matrix .= reshape(seed_matrix, 1, :)
+    state.global_concentration.enclosed_liquids .= seed_enclosed_liquids
     state.enclosed_water_volume .= PGOLD_SEED_WATER
     return simulate(state; inflow_concentrations=PGOLD_INFLOW,
                     simulation_time=PGOLD_TSIM, time_step=PGOLD_DT,
@@ -67,19 +79,30 @@ function _patdiffs(a, b; floor=1e-12)
 end
 
 const PGOLD_DEFAULT_REF = joinpath(@__DIR__, "reference_pathogen")
+const PGOLD_LIGHT_REF   = joinpath(@__DIR__, "reference_pathogen_light")
+
+# Run kwargs for the light+dark variant (see run_export_pathogen.m). Constant
+# light + dark_respiration>0 with a phototroph-heavy seed exercises the
+# dark-respiration light floor max(fdark, I·e^{1-I}).
+const PGOLD_LIGHT_RUN = (dark_respiration=0.1, light_const=0.8,
+                         seed_matrix=Float64[0.05, 0.1, 0.02, 0.01],
+                         seed_enclosed_liquids=0.05)
 
 """
-    golden_compare_pathogen(refdir=PGOLD_DEFAULT_REF; rtol=1e-6, atol=1e-7, verbose=false)
+    golden_compare_pathogen(refdir=PGOLD_DEFAULT_REF; run_kwargs=(;),
+                            rtol=1e-6, atol=1e-7, verbose=false)
         -> (match, worst_abs, worst_rel, flags_agree)
 
-Run the Julia pathogen simulation and compare every exported field against the
+Run the Julia pathogen simulation (with `run_kwargs` forwarded to
+[`golden_run_pathogen_julia`](@ref)) and compare every exported field against the
 MATLAB reference in `refdir`. A field passes if its max abs OR max rel difference
 is within tolerance.
 """
-function golden_compare_pathogen(refdir=PGOLD_DEFAULT_REF; rtol=1e-6, atol=1e-7, verbose=false)
+function golden_compare_pathogen(refdir=PGOLD_DEFAULT_REF; run_kwargs=(;),
+                                 rtol=1e-6, atol=1e-7, verbose=false)
     meta = _patparse_meta(refdir)
     names = split(meta["names"], ',')
-    res = golden_run_pathogen_julia()
+    res = golden_run_pathogen_julia(; run_kwargs...)
     flags_agree = String(strip(get(meta, "flag", "?"))) == res.flag
 
     verbose && @printf("MATLAB flag: %s | Julia flag: %s\n\n",
