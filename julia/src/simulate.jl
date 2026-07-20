@@ -158,6 +158,15 @@ function simulate(state::State;
 
     muRates = compute_reaction_rates(model, temperature)   # length nRx
     nRx = length(muRates)
+    # Per-reaction phase efficiencies (default 1.0). `efficiency_flowing` is the
+    # port of the MATLAB `r_water` scaling: it multiplies each reaction's rate in
+    # the flowing phase (the pathogen model zeroes all but bacterivory and scales
+    # that by `water_factor`). `efficiency_biofilm` scales the biofilm/enclosed
+    # phases. Both default to 1.0, leaving non-pathogen models unchanged.
+    eff_biofilm = reshape(Float64[r.efficiency_biofilm for r in model.reactions], 1, nRx)
+    eff_flowing = reshape(Float64[r.efficiency_flowing for r in model.reactions], 1, nRx)
+    # Per-particle sand-attachment scaling (default 1.0); see `Particle`.
+    sand_factors = reshape(Float64[p.sand_attachment_factor for p in P], 1, kP)
     light_optimal = isempty(model.reactions) ? 1.0 :
                     maximum(r.optimal_light_factor for r in model.reactions)
     attenuation_particles = reshape([p.attenuation for p in P], 1, kP)
@@ -290,9 +299,10 @@ function simulate(state::State;
         end
 
         # --- ecological + exchange reactions ---
-        ecoBiofilm = _evaluate_reactions(localBiofilm, kernel, phiBiofilm, muRates, lightFactor)
-        ecoEnclosed = _evaluate_reactions(localEnclosed, kernel, phiEnclosed, muRates, lightFactor)
-        ecoFlowing = _evaluate_reactions(localFlowing, kernel, phiFlowing, muRates, lightFactor)
+        # Phase efficiencies scale each reaction per region (defaults 1.0).
+        ecoBiofilm = _evaluate_reactions(localBiofilm, kernel, phiBiofilm, muRates, lightFactor) .* eff_biofilm
+        ecoEnclosed = _evaluate_reactions(localEnclosed, kernel, phiEnclosed, muRates, lightFactor) .* eff_biofilm
+        ecoFlowing = _evaluate_reactions(localFlowing, kernel, phiFlowing, muRates, lightFactor) .* eff_flowing
 
         ecoRxM  = ecoBiofilm * sigmaP'
         ecoRxPe = ecoEnclosed * sigmaP'
@@ -301,7 +311,11 @@ function simulate(state::State;
         ecoRxLf = ecoFlowing * sigmaL'
 
         attE = attEnclosedFactor .* globalEnclosedP .* attachment_rates
-        attF = attFlowingFactor .* globalFlowingP .* attachment_rates
+        # Flowing attachment splits into a sand term (scaled per particle by
+        # `sand_attachment_factor`) and a biofilm term. With all factors 1.0 this
+        # equals `attFlowingFactor .* globalFlowingP .* attachment_rates`.
+        attFactorP = (1 .- porosity_centers) .* sand_factors .+ porosity_centers .* phiBiofilm
+        attF = attFactorP .* globalFlowingP .* attachment_rates
 
         velFlowingCenters = 0.5 .* (velFlowing[2:end] .+ velFlowing[1:end-1])
         detM = model.detachment(velFlowingCenters) .* globalMatrix

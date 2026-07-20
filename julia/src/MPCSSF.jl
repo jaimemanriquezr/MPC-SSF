@@ -53,6 +53,7 @@ include("plotting.jl")
 # ---- presets ----------------------------------------------------------------
 include("presets/modelLund.jl")
 include("presets/simpleModel.jl")
+include("presets/modelPathogen.jl")
 
 export Component, Particle, Liquid, Reaction
 export compute_rate, lookup_order, lookup_half_saturation_constants,
@@ -73,6 +74,6 @@ export final_state, concatenate
 # Plot functions (implemented by the CairoMakie/Makie package extension).
 export plot_concentration, plot_concentration_heatmap, plot_volume_fractions,
        plot_velocity, plot_cfl, plot_reaction_rates
-export modelLund, simpleModel
+export modelLund, simpleModel, modelPathogen
 
 end # module MPCSSF

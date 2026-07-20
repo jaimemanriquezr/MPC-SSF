@@ -357,6 +357,91 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test [r.is_light_dependent for r in m.reactions] == [false, true, false, false, false]
     end
 
+    @testset "modelPathogen preset" begin
+        m = modelPathogen()
+        # 9 components (4 particulate, 5 dissolved), 7 reactions (Lund + 2).
+        @test length(m.components) == 9
+        @test [c.name for c in particles(m)] == ["HET", "PHO", "POM", "PAT"]
+        @test [c.name for c in liquids(m)] == ["O2", "IC", "NH4", "HPO4", "DOM"]
+        @test [r.name for r in m.reactions][6:7] == ["Inactivation", "Bacterivory"]
+
+        # thesis_model globals/units differ from modelLund (τ = 1e-3, ρ ≈ 1).
+        @test m.osmosis_rate ≈ 1.0e-3
+        @test m.cohesion_submodel.zeta_0 ≈ 1.0
+        @test particles(m)[1].density ≈ 1.2
+        @test particles(m)[4].transport_rate ≈ 1.0e-6   # PAT
+        @test particles(m)[4].attachment_sand ≈ 2.0
+
+        # Inactivation: first-order PAT die-off, inert in the flowing phase.
+        inact = m.reactions[6]
+        @test inact.order == Dict("PAT" => 1.0)
+        @test inact.stoichiometric_coefficients == Dict("PAT" => -1.0)
+        @test inact.efficiency_flowing == 0.0
+        @test inact.nominal_rate ≈ 0.4
+
+        # Bacterivory: first-order PAT, HET-Monod (kPred = 0.002), returns HET;
+        # the only flowing-active reaction, scaled by water_factor.
+        bac = m.reactions[7]
+        @test bac.order == Dict("PAT" => 1.0)
+        @test bac.half_saturation_constants == Dict("HET" => 0.002)   # Monod on HET, not DOM
+        @test bac.stoichiometric_coefficients == Dict("PAT" => -1.0, "HET" => 1.0)
+        @test bac.nominal_rate ≈ 20.0
+        @test bac.efficiency_flowing ≈ 1.0e-3                          # default water_factor
+
+        # All Lund reactions are inert in the flowing phase (r_water = 0).
+        @test all(m.reactions[i].efficiency_flowing == 0.0 for i in 1:5)
+
+        # Constructor knobs propagate.
+        m2 = modelPathogen(water_factor=5e-3, sand_pathogen=0.1, dark_respiration=0.05)
+        @test m2.reactions[7].efficiency_flowing ≈ 5e-3
+        @test particles(m2)[4].sand_attachment_factor ≈ 0.1
+        @test m2.reactions[2].minimum_light_factor ≈ 0.05             # phototroph dark resp.
+        # Default PAT does not preferentially attach to sand.
+        @test particles(m)[4].sand_attachment_factor == 0.0
+
+        # The generic reaction kernel accepts the model (one order term each).
+        @test MPCSSF._reaction_kernel(m) isa NamedTuple
+    end
+
+    @testset "pathogen reaction kinetics" begin
+        # Directly evaluate the two new reactions through the generic kernel, at
+        # 20 °C where μ reduces to the nominal rates, to confirm the encoding
+        # reproduces run_pathogen's Inactivation (μ·PAT) and Bacterivory
+        # (μ·PAT·HET/(HET+kPred)) terms.
+        m = modelPathogen()
+        comps = vcat(particles(m), liquids(m))
+        kernel = MPCSSF._reaction_kernel(m)
+        mu = compute_reaction_rates(m, 20)                 # μ₂₀ = nominal at 20 °C
+        @test mu[6] ≈ 0.4 && mu[7] ≈ 20.0
+
+        HET, PAT = 1.0, 2.0
+        X = [HET 0.0 0.5 PAT]                              # HET PHO POM PAT
+        S = [0.1 0.1 0.1 0.1 0.1]                          # O2 IC NH4 HPO4 DOM
+        local_ = MPCSSF._local(X, S, kernel.num_idx, kernel.den_idx)
+        light = ones(1, length(mu))
+        rx = MPCSSF._evaluate_reactions(local_, kernel, [1.0], mu, light)
+
+        kPred = 0.002
+        @test rx[1, 6] ≈ 0.4 * PAT                                    # inactivation
+        @test rx[1, 7] ≈ 20.0 * PAT * HET / (HET + kPred) rtol=1e-9   # bacterivory
+    end
+
+    @testset "pathogen simulate (smoke)" begin
+        # The 4-particle / 7-reaction pathogen model runs end-to-end through the
+        # generalized solver (efficiency_flowing + sand_attachment_factor paths).
+        f = addgridpoints(SandFilter(), 20)
+        m = modelPathogen()
+        inflow = Float64[1e-3, 1e-3, 0.0, 1e-5, 1e-2, 1e-2, 1e-5, 0.0, 1e-4] ./ 10
+        r = simulate(State(f, m); inflow_concentrations=inflow,
+                     simulation_time=1e-6, time_step=1e-8, n_frames=5, quiet=true)
+        N = length(f.grid.centers)
+        @test r.flag == "OK"
+        @test size(r.frames[:concentration_biofilm]) == (N, 5, 13)    # 2kP+kL
+        @test size(r.frames[:concentration_flowing]) == (N, 5, 9)     # kP+kL
+        @test reaction_names(r)[6:7] == ["Inactivation", "Bacterivory"]
+        @test size(reaction_rates(r), 3) == 7
+    end
+
     @testset "adaptive CFL time-stepping" begin
         f = addgridpoints(SandFilter(), 20)
         m = modelLund()

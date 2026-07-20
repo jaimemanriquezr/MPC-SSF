@@ -87,6 +87,50 @@ has a MATLAB reference to validate against.
       State from a frame (port of `@SDresults/get_filter_state`), and
       `concatenate(r1,r2)` / `r1 + r2` join runs. Validated: resuming reproduces
       a continuous run bit-for-bit. (`src/chaining.jl`.)
-- [ ] Add pathogen model (after MATLAB).
+- [~] Add pathogen model. Phase 1 DONE (Julia, `julia-port`): ported the
+      `thesis_model.mat` pathogen model as `modelPathogen()` (4 particles incl.
+      PAT, 7 reactions = Lund 5 + Inactivation + Bacterivory). The two extra
+      reactions ride the existing generic kernel — Inactivation is first-order
+      PAT decay; Bacterivory is first-order PAT with an HET Monod (kPred=0.002,
+      the value MATLAB parks in the DOM row but applies to HET). Three
+      pathogen-specific mechanisms are folded into the solver as
+      **backward-compatible** generalizations (defaults reproduce the biofilm
+      model exactly, golden masters unchanged): `water_factor` →
+      `Reaction.efficiency_flowing` (per-reaction flowing-phase scaling; only
+      bacterivory acts in the flowing phase), and `sand_pathogen` →
+      `Particle.sand_attachment_factor` (splits flowing attachment into a
+      sand vs. biofilm term). 201 tests pass; preset + kinetics + smoke tests
+      added.
+      Phase 2 (TODO): golden-master validation vs. `@SDfilter/run_pathogen.m`
+      (`slow-sand-filtration`). Needs reconciling the light/dark-respiration
+      model (Julia uses per-reaction `minimum_light_factor`; MATLAB uses a
+      global `fdark = dark_respiration`) and building an
+      `export_pathogen_reference.m` / `compare_pathogen.jl` harness. Detachment
+      is a preset default here; pathogen batch runs override it.
 - [x] Port richer results/plotting. DONE: Makie plots via package extension
       (`ext/MPCSSFMakieExt.jl`) + `Results` accessors; see the plotting item above.
+
+## Article revision: sensitivity analysis (Manriquez2026)
+
+Reviewers of `Manriquez2026` (see `../Manriquez2026_CW_Review.pdf`) both request a
+sensitivity analysis. R1 (pt. 2): confirm published data / quantify uncertainty
+for key parameters, esp. attachment/detachment coefficients and environmental
+reaction rates. R2 (pt. 2): a brief sensitivity analysis or qualitative
+discussion of which parameters are most influential; a full calibration study is
+out of scope. Target the parameters both reviewers flag:
+
+- [ ] **Attachment / detachment** — particle `attachment_sand`/`attachment_matrix`,
+      the detachment law, and (pathogen) `sand_pathogen`.
+- [ ] **Biofilm excess velocity** — Cahn-Hilliard `zeta_0` (and `zeta_1`, `kappa`).
+- [ ] **Light attenuation** — `light_attenuation_{water,sand}`, particle
+      `attenuation`.
+- [ ] **Environmental reaction rates** — reaction `nominal_rate` /
+      `temperature_correction_factor` (temperature).
+- [ ] **PAT inactivation & bacterivory rates** — Inactivation/Bacterivory
+      `nominal_rate`, bacterivory `kPred`, `water_factor`.
+
+Approach: one-at-a-time (± factor) sweeps around the base case, reporting the
+effect on headline outputs (effluent pathogen removal, biofilm/clogging profile,
+O2 above the sand). The Julia port is the natural driver (fast to sweep,
+`modelPathogen` knobs already parameterized). Deliver a figure + short subsection
+for the revision (deadline Aug 1, 2026).
