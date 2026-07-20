@@ -188,6 +188,7 @@ function simulate(state::State;
     concFramesWater = zeros(N, numFrames)
     velFramesBiofilm = zeros(N - 1, numFrames)
     velFramesFlowing = zeros(N - 1, numFrames)
+    concFramesReaction = zeros(N, numFrames, nRx)   # biofilm eco reaction rates
 
     timeSnap = collect(range(t0, t0 + simulation_time; length=numFrames))
     counter = 1
@@ -455,6 +456,7 @@ function simulate(state::State;
             concFramesWater[:, counter] = densityL .* phiW
             velFramesBiofilm[:, counter] = velBiofilm
             velFramesFlowing[:, counter] = velFlowing[2:end-1]
+            concFramesReaction[:, counter, :] = ecoBiofilm
             counter += 1
             quiet || @info "simulate" t
         end
@@ -468,6 +470,7 @@ function simulate(state::State;
     results.frames[:concentration_water] = concFramesWater
     results.frames[:velocity_biofilm] = velFramesBiofilm
     results.frames[:velocity_flowing] = velFramesFlowing
+    results.frames[:reaction_rates] = concFramesReaction
     results.time_final = t
     results.simulation_data[:time_final] = t
     # For adaptive runs keep the "adaptive" marker (record the last dt separately);

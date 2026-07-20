@@ -47,6 +47,9 @@ include("Results.jl")
 # ---- run chaining (resume + concatenate) ------------------------------------
 include("chaining.jl")
 
+# ---- plotting generics (methods in the Makie extension) ---------------------
+include("plotting.jl")
+
 # ---- presets ----------------------------------------------------------------
 include("presets/modelLund.jl")
 include("presets/simpleModel.jl")
@@ -65,7 +68,11 @@ export Model, particles, liquids, compute_reaction_rates,
 export State, GlobalConcentration, Velocity, global_concentration_biofilm,
        global_concentration_flowing, volume_fractions, simulate
 export Results, concentration, get_volume_fractions, times, depths
+export reaction_rates, reaction_names
 export final_state, concatenate
+# Plot functions (implemented by the CairoMakie/Makie package extension).
+export plot_concentration, plot_concentration_heatmap, plot_volume_fractions,
+       plot_velocity, plot_cfl, plot_reaction_rates
 export modelLund, simpleModel
 
 end # module MPCSSF

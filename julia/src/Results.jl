@@ -39,6 +39,18 @@ times(r::Results) = r.frames[:time]
 depths(r::Results) = r.filter.grid.centers
 
 """
+    reaction_rates(r::Results) -> depth × frame × reaction array
+
+Per-frame biofilm ecological reaction rates φ·μ·I·monod·product (captured by
+`simulate`). Reaction order/names follow `r.model.reactions`; use
+[`reaction_names`](@ref) for the labels.
+"""
+reaction_rates(r::Results) = r.frames[:reaction_rates]
+
+"Names of the model's reactions, in column order of [`reaction_rates`](@ref)."
+reaction_names(r::Results) = [rx.name for rx in r.model.reactions]
+
+"""
     concentration(r::Results, name, region) -> depth × frame matrix
 
 Concentration field for component `name` in `region ∈ (:matrix, :enclosed,
