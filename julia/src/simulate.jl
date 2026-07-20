@@ -230,6 +230,7 @@ function simulate(state::State;
     end
     results.simulation_data[:time_step] = is_adaptive ? "adaptive" : dt
     t = t0
+    step_times = Float64[t0]        # t after each step; diff gives the dt sequence
     while t < t0 + simulation_time
         globalConcInflow = inflow_fn(t)
 
@@ -446,6 +447,7 @@ function simulate(state::State;
 
         # advance + frame capture
         t += dt
+        push!(step_times, t)
         if counter <= numFrames && t >= timeSnap[counter]
             timeFrames[counter] = t
             concFramesBiofilm[:, counter, :] = globalBiofilm
@@ -459,6 +461,7 @@ function simulate(state::State;
     end
 
     # ---- VII. outputs ------------------------------------------------------
+    results.simulation_data[:step_times] = step_times
     results.frames[:time] = timeFrames
     results.frames[:concentration_biofilm] = concFramesBiofilm
     results.frames[:concentration_flowing] = concFramesFlowing

@@ -68,3 +68,28 @@ time steps, **not** a port bug:
 Tolerance is therefore `atol=1e-7`, `rtol=1e-6` (a field passes on abs OR rel
 within tol) — ~5 orders below the microorganism inflow (1e-2) and 7 below the
 nutrient inflow (1.0).
+
+## Adaptive-CFL golden-master
+
+`export_adaptive_reference.m` / `compare_adaptive.jl` validate the
+`time_step=:adaptive` path on **modelLund** (which, unlike SimpleModel, has
+nonzero dispersivity and the reaction structure the CFL bound assumes). It
+compares the per-step **dt trajectory** (`step_times`) as well as the frame
+concentrations/velocities. Reference: `reference_adaptive/`.
+
+Because the adaptive MATLAB `simulate` lives on branch `matlab-claude`, generate
+the reference by overlaying those two files, then restoring:
+
+```
+git checkout matlab-claude -- src/@State/simulate.m src/@Model/Model.m
+cp julia/test/golden/export_adaptive_reference.m .
+matlab -batch "initpath; export_adaptive_reference('/abs/path/to/refdir')"
+rm export_adaptive_reference.m
+git checkout HEAD -- src/@State/simulate.m src/@Model/Model.m
+```
+
+Result: **exact match**. Both codes take the same 228 steps and every field
+(dt trajectory included) agrees to ~1e-15 — the adaptive stepping is bit-for-bit
+deterministic between MATLAB and Julia over this horizon (the run spec keeps a
+short physical time so concentrations stay small and the CFL bound is dominated
+by advection). The testset also asserts identical step counts.

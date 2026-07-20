@@ -350,11 +350,23 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
     # (test/golden/reference/, produced by export_reference.m) by default; set
     # MPCSSF_GOLDEN_REF to compare against a freshly exported reference instead.
     # See test/golden/README.md.
-    @testset "golden-master vs MATLAB" begin
+    @testset "golden-master vs MATLAB (fixed step)" begin
         include(joinpath(@__DIR__, "golden", "compare.jl"))
         refdir = get(ENV, "MPCSSF_GOLDEN_REF", GOLDEN_DEFAULT_REF)
         r = golden_compare(refdir; verbose=true)
         @test r.flags_agree
         @test r.match
+    end
+
+    # Adaptive-CFL golden-master: modelLund with TimeStep=:adaptive vs the MATLAB
+    # reference (test/golden/reference_adaptive/, from export_adaptive_reference.m).
+    @testset "golden-master vs MATLAB (adaptive)" begin
+        include(joinpath(@__DIR__, "golden", "compare_adaptive.jl"))
+        refdir = get(ENV, "MPCSSF_GOLDEN_ADAPTIVE_REF", GOLDEN_ADAPTIVE_REF)
+        r = golden_compare_adaptive(refdir; verbose=true)
+        @test r.flags_agree
+        @test r.match
+        # the adaptive stepping is deterministic here: identical step count
+        @test r.jl_steps == r.ref_steps
     end
 end
