@@ -34,13 +34,17 @@ _remake(r::Reaction; kw...) = Reaction(; name=r.name, (; nominal_rate=r.nominal_
     efficiency_flowing=r.efficiency_flowing, is_light_dependent=r.is_light_dependent,
     minimum_light_factor=r.minimum_light_factor, optimal_light_factor=r.optimal_light_factor, kw...)...)
 
-# Physical pathogen model = modelLund (ρ=1117, 4 particles incl. PAT, 5 reactions)
-# + marker inactivation (r8) and bacterivory (r9). Lund reactions are made inert
-# in the flowing phase (efficiency_flowing=0) as in the pathogen model. PAT gets
-# transfer ×40 (srun_pathogen) and sand_pathogen. Rates are PLACEHOLDERS — replace
-# inact_rate/bact_rate/kpred with the Appendix B physical values.
-function pathogen_model(; inact_mult=1.0, bact_mult=1.0,
-                        inact_rate=0.4, bact_rate=20.0, kpred=2e-3,
+# Physical pathogen model = modelLund (ρ=1117) + the THREE marker reactions from
+# Manriquez2026 Table B.4: aerobic growth r7 (μ̂_PAT=0.2 d⁻¹), inactivation r8
+# (d̂_PAT=0.02 d⁻¹), bacterivory r9 (p̂_PAT=8.0 d⁻¹). Lund reactions made inert in
+# the flowing phase. PAT gets transfer ×40 (srun_pathogen) and sand_pathogen.
+# CAVEATS: (1) Table B.4 lists NO K_pred (bacterivory Monod half-sat) — kept the
+# thesis_model value 2e-3, VERIFY against Section 4 text. (2) The r7 aerobic-growth
+# stoichiometry (which liquids it consumes) is not in the tables — modelled here
+# like heterotroph growth (O2/NH4/DOM Monod, O2 consumed); confirm vs Section 4's
+# stoichiometric matrix. Rates θ: growth 1.047, inactivation/bacterivory 1.08.
+function pathogen_model(; growth_mult=1.0, inact_mult=1.0, bact_mult=1.0,
+                        growth_rate=0.2, inact_rate=0.02, bact_rate=8.0, kpred=2e-3,
                         water_factor=1e-3, sand_pathogen=0.0)
     m = modelLund()
     comps = Component[c isa Particle && c.name == "PAT" ?
@@ -48,8 +52,15 @@ function pathogen_model(; inact_mult=1.0, bact_mult=1.0,
                       for c in m.components]
     rxs = Reaction[_remake(r; efficiency_flowing=0.0) for r in m.reactions]   # Lund rxns inert in flowing
     push!(rxs,
+        # r7 — marker aerobic growth (APPROX stoichiometry; see caveat)
+        Reaction(name="MarkerGrowth", nominal_rate=growth_mult*growth_rate, temperature_correction_factor=1.047,
+                 efficiency_flowing=0.0, order=Dict("PAT"=>1.0),
+                 half_saturation_constants=Dict("O2"=>3.0e-3, "NH4"=>4.0e-3, "DOM"=>2.0e-4),
+                 stoichiometric_coefficients=Dict("PAT"=>1.0, "O2"=>-1.2317, "DOM"=>-1.5873)),
+        # r8 — inactivation
         Reaction(name="Inactivation", nominal_rate=inact_mult*inact_rate, temperature_correction_factor=1.08,
                  efficiency_flowing=0.0, order=Dict("PAT"=>1.0), stoichiometric_coefficients=Dict("PAT"=>-1.0)),
+        # r9 — bacterivory (HET-promoted predation)
         Reaction(name="Bacterivory", nominal_rate=bact_mult*bact_rate, temperature_correction_factor=1.08,
                  efficiency_flowing=water_factor, order=Dict("PAT"=>1.0),
                  half_saturation_constants=Dict("HET"=>kpred),
@@ -60,8 +71,10 @@ function pathogen_model(; inact_mult=1.0, bact_mult=1.0,
           detachment=(v -> 1.4e-5 .* sqrt.(abs.(v) ./ 18.0)))
 end
 
-# Table B.1 influent (marker/PAT = 5.36e-3)  [HET PHO POM PAT | O2 IC NH4 HPO4 DOM]
-const INFLUENT = Float64[2.68e-3, 1.00e-2, 0.0, 5.36e-3, 9.10e-3, 6.23e-3, 2.00e-5, 1.0e-5, 1.75e-4]
+# Table B.1 influent (kg/m³)  [HET PHO POM PAT | O2 IC NH4 HPO4 DOM]
+# HET 2.68e-3, PHO 1.00e-2, POM 0, PAT/marker 5.36e-3, O2 9.10e-3, IC 6.23e-3,
+# NH4 2.00e-5, HPO4 0 (Table B.1: phosphate influent is exactly 0), DOM 1.75e-4.
+const INFLUENT = Float64[2.68e-3, 1.00e-2, 0.0, 5.36e-3, 9.10e-3, 6.23e-3, 2.00e-5, 0.0, 1.75e-4]
 light_default(t) = max(0.5*(sin(2π*(t-0.3)) + 1) - 0.2, 0.0)
 
 # ---- pulse inflow (port of pulse_error.m): pulsed components ×factor over a window
