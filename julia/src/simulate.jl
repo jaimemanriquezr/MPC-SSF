@@ -170,7 +170,8 @@ function simulate(state::State;
                   adaptive_velocity_factor::Real=0.0,
                   adaptive_time_tolerance::Real=1e-3,
                   adaptive_initial_dt::Real=5e-7,
-                  adaptive_max_dt::Real=5e-7)
+                  adaptive_max_dt::Real=5e-7,
+                  implicit_osmosis::Bool=false)
     f = state.filter
     model = state.model
     temperature = f.temperature
@@ -399,11 +400,20 @@ function simulate(state::State;
         rhsBiofilm = hcat(rxMatrix, rxEnclP, rxEnclL)
         rhsFlowing = hcat(rxFlowP, rxFlowL)
         rhsEnclWater = (beta .* phiBiofilm .- phiEnclosed) ./ tau
+        # Implicit-osmosis option: the relaxation is (β·φB−φe)/τ = Aosm − kosm·φW
+        # with kosm = (1−β)/τ, a stiff linear decay in φW. Integrating that term
+        # with backward Euler damps the rate to rate/(1+dt·kosm) — unconditionally
+        # stable, exact as dt→0, and zero at equilibrium (τ, β unchanged). This
+        # lets us drop 1/τ from the CFL below so dt is no longer osmosis-bound.
+        # Solver A runs on the previous dt (Diehl2025 §3.5); the φW update below
+        # re-damps with the new dt.
+        kosm = (1 - beta) / tau
+        rhsEnclWaterA = implicit_osmosis ? rhsEnclWater ./ (1 .+ dt .* kosm) : rhsEnclWater
 
         # --- SOLVER A: biofilm velocity ---
         rhsBioVol = vec(sum(rxMatrix, dims=2)) ./ densityP .+
                     vec(sum(rxEnclP, dims=2)) ./ densityP .+
-                    vec(sum(rxEnclL, dims=2)) ./ densityL .+ rhsEnclWater
+                    vec(sum(rxEnclL, dims=2)) ./ densityL .+ rhsEnclWaterA
         u = phiBiofilm[1:n0]
         uB = 0.5 .* (u[2:end] .+ u[1:end-1])               # length n0-1
         lambda = zeta_0 .* mobility(uB)
@@ -456,7 +466,8 @@ function simulate(state::State;
                    2vfmax * alphaL * (1 + 1 / (1 - maxPhib))]
             w_b = [maximum(det_vf),
                    maximum(attachment_rates) * maximum(attEnclosedFactor) + maximum(transport_particle_rates) / beta,
-                   max(maximum(transport_liquid_rates) / beta, 1 / tau),
+                   implicit_osmosis ? maximum(transport_liquid_rates) / beta :
+                       max(maximum(transport_liquid_rates) / beta, 1 / tau),
                    maximum(attachment_rates) * maximum(attFlowingFactor) + maximum(transport_particle_rates) / beta * phie_f_max,
                    maximum(transport_liquid_rates) / beta * phie_f_max]
             w_s = [max(ws_t0, s35mu5 * maxXi(Xb)),
@@ -504,7 +515,8 @@ function simulate(state::State;
         # update cell values
         globalBiofilm = globalBiofilm .+ (dt / dz) .* (fBioIn .- fBioOut) ./ porosity_centers .+ dt .* rhsBiofilm
         globalFlowing = globalFlowing .+ (dt / dz) .* (fFlowIn .- fFlowOut) ./ porosity_centers .+ dt .* rhsFlowing
-        phiW = phiW .+ (dt / dz) .* (fWatIn .- fWatOut) ./ porosity_centers .+ dt .* rhsEnclWater
+        rhsEnclWaterB = implicit_osmosis ? rhsEnclWater ./ (1 .+ dt .* kosm) : rhsEnclWater
+        phiW = phiW .+ (dt / dz) .* (fWatIn .- fWatOut) ./ porosity_centers .+ dt .* rhsEnclWaterB
 
         # negativity guards
         if any(x -> x < 0 || isnan(x), globalBiofilm)
