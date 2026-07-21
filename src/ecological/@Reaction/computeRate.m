@@ -17,5 +17,11 @@ function mu = computeRate(obj, temperature, options)
         otherwise
             error("Invalid temperature scale.") 
     end
-    mu = mu20 .* (theta).^(temperature/nominalTemperature - 1);
+    % theta (~1.05-1.08) is calibrated to the temperature DIFFERENCE form
+    % theta^(T - T_nom) (a K/degC difference), not the dimensionless ratio
+    % theta^(T/T_nom - 1). The ratio makes the response ~293x too weak unless
+    % theta is recalibrated to theta^293; kept the calibrated theta and the
+    % difference form. (Authoritative slow-sand run_biofilm uses theta^(293-T_K),
+    % sign-flipped; all three coincide only at the 20 degC reference.)
+    mu = mu20 .* (theta).^(temperature - nominalTemperature);
 end
