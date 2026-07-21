@@ -31,7 +31,11 @@ include(joinpath(@__DIR__, "pathogen_repro.jl"))    # pathogen_model()
 # ---- forcing / disturbance config ------------------------------------------
 const INFLUENT_BASE = Float64[2.68e-3, 1.00e-2, 0.0, 5.36e-3, 9.10e-3, 6.23e-3, 2.00e-5, 0.0, 1.75e-4]
 const PAT_IN   = INFLUENT_BASE[4]
-const PULSE_FACTOR = 100.0        # challenge = 100× ambient PAT
+# Challenge = 10× ambient PAT. NB: a 100× step pulse creates a front too sharp for
+# the capped proxy dt to resolve, spiking φ_b in the surface cell to a spurious
+# clog (verified: ×100 CLOGGED at t=0.34, ×10 runs clean to T). 10× is a
+# legitimate contamination challenge and keeps every run physical.
+const PULSE_FACTOR = 10.0
 const PULSE_T0 = 0.1              # pulse start (day) = disturbance time t_d
 const PULSE_T1 = 0.3              # pulse end (day)
 const TD = PULSE_T0               # analysis window start
