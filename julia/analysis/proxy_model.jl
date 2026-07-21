@@ -1,26 +1,25 @@
-# Fast PROXY of modelLund for quick evaluation runs — osmosis kept PHYSICAL.
+# Fast evaluation of modelLund — osmosis kept PHYSICAL, via the implicit_osmosis
+# solver flag. Two tiers:
 #
-# modelLund is cluster-stiff (dt~1e-7 to 1e-9). Three things throttle the step:
-#   (a) osmosis 1/τ (τ=1e-7) — the dominant bound,
-#   (b) reaction rates,
-#   (c) the tiny half-saturations (e.g. HPO4 K=1.4e-8), which blow up the
-#       liquid-consumption CFL weight X/(S+K) as nutrients deplete.
+#   FAITHFUL (recommended):  run_proxy(State(f, modelLund()); ...)
+#     Plain modelLund + implicit_osmosis + a capped dt. modelLund's step is bound
+#     almost entirely by the osmosis 1/τ (=1e7 at τ=1e-7); integrating that linear
+#     relaxation implicitly removes the bound while τ and β stay EXACTLY physical.
+#     Measured: ~20× fewer steps than explicit, matching it to ~1e-4 relative at
+#     t=0.15 (biofilm developed). Physics unchanged — this is the model, just faster.
 #
-# (a) is handled WITHOUT touching the osmosis physics: pass `implicit_osmosis=true`
-# to `simulate` (this repo's opt-in solver flag). It integrates the linear
-# relaxation (β·φB−φe)/τ with backward Euler — unconditionally stable — so 1/τ
-# drops out of the CFL while τ and β stay exactly at their modelLund values. That
-# alone buys ~14× larger dt; the model here then relaxes (b) and (c) for the rest.
+#   AGGRESSIVE (lower fidelity):  run_proxy(State(f, modelLund_proxy()); ...)
+#     Also floors the tiny half-saturations and scales reaction rates, which relaxes
+#     the *reaction* CFL so dt grows further (to ~1e-3). This changes the reaction
+#     physics AND, past dt~5e-6, lets fast-depleting species overshoot negative
+#     (trips the BIOFILM guard). Use only for plumbing/qualitative checks where a
+#     large dt matters more than correctness.
 #
-#   modelLund_proxy(; rate_factor=0.1, halfsat_floor=1e-3)   # osmosis UNMODIFIED
-# rate_factor scales every reaction rate; halfsat_floor raises every Monod
-# half-saturation to at least this value (kills the K→0 CFL spike). Osmosis time
-# τ and biofilm porosity β are left at the physical modelLund values (1e-7, 0.99).
-#
-# Use `run_proxy(...)` to simulate with `implicit_osmosis=true` already set.
-# NOT physically faithful in the reaction rates / half-sats — for wiring, plumbing
-# and qualitative checks only. (The physical influent still clogs a coarse filter
-# in ~0.2–0.5 d; that clogging is real, not a proxy artifact.)
+# WHY the dt cap: implicit osmosis only makes the *osmosis* term unconditionally
+# stable. The reaction/transport terms are still explicit, and their CFL slightly
+# under-bounds negativity once osmosis no longer limits dt — verified: explicit
+# modelLund runs clean to t=0.55, the uncapped-implicit run goes negative at ~0.47.
+# adaptive_max_dt=3e-6 sits safely below that (for ~30 cells) and still gives ~20×.
 
 using MPCSSF
 
@@ -37,31 +36,30 @@ _floor_K(d, floor) = Dict{String,Float64}(k => occursin("/", k) ? v : max(v, flo
 """
     modelLund_proxy(; rate_factor=0.1, halfsat_floor=1e-3) -> Model
 
-Fast, non-physical proxy of `modelLund` that keeps osmosis PHYSICAL (τ=1e-7,
-β=0.99). Reaction rates are ×`rate_factor` and half-saturations floored at
-`halfsat_floor`. To actually run fast, simulate it with `implicit_osmosis=true`
-(see [`run_proxy`](@ref)), which removes the osmosis dt bound without changing τ.
-For quick evaluation / pipeline checks only.
+AGGRESSIVE proxy of `modelLund` (osmosis still physical: τ=1e-7, β=0.99). Reaction
+rates ×`rate_factor` and half-saturations floored at `halfsat_floor` to relax the
+reaction CFL for extra dt. Lower fidelity than plain `modelLund` and can trip the
+negativity guard at very large dt — prefer plain `modelLund` with [`run_proxy`](@ref)
+unless you specifically need dt beyond ~3e-6.
 """
 function modelLund_proxy(; rate_factor=0.1, halfsat_floor=1e-3)
     m = modelLund()
     rxs = Reaction[_remake_rx(r; nominal_rate=rate_factor*r.nominal_rate,
                               half_saturation_constants=_floor_K(r.half_saturation_constants, halfsat_floor))
                    for r in m.reactions]
-    # osmosis_rate (τ) and biofilm_porosity (β) kept at the modelLund values.
     Model(m.components, rxs; cohesion_submodel=m.cohesion_submodel, water_density=m.water_density,
           biofilm_porosity=m.biofilm_porosity, osmosis_rate=m.osmosis_rate, detachment=m.detachment)
 end
 
 """
-    run_proxy(state; simulation_time, kwargs...) -> Results
+    run_proxy(state; simulation_time, inflow_concentrations, kwargs...) -> Results
 
-Convenience wrapper: `simulate` with `implicit_osmosis=true` and adaptive stepping
-tuned for the proxy (large `adaptive_max_dt`). Extra kwargs pass through to
-`simulate` and override the defaults.
+Simulate with `implicit_osmosis=true` and a dt capped at `adaptive_max_dt` (default
+3e-6, the faithful ceiling for ~30 cells). On plain `modelLund` this is ~20× faster
+than explicit with physics exact. Extra kwargs pass through to / override `simulate`.
 """
 function run_proxy(state; simulation_time, inflow_concentrations,
-                   cfl_factor=0.99, adaptive_initial_dt=1e-8, adaptive_max_dt=1e-2,
+                   cfl_factor=0.99, adaptive_initial_dt=1e-8, adaptive_max_dt=3e-6,
                    n_frames=200, quiet=false, kwargs...)
     simulate(state; inflow_concentrations, simulation_time, time_step=:adaptive,
              cfl_factor, adaptive_initial_dt, adaptive_max_dt, n_frames, quiet,
