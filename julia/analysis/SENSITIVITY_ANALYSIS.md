@@ -1,25 +1,52 @@
 # Sensitivity analysis & UQ — setup
 
-Global sensitivity analysis of the physical slow-sand pathogen model, following
-the plan in `Sensitivity_Analysis_UQ_SSF_model.pdf`, with parameter ranges drawn
-from **Campos et al. (2006)** (biological rates, temperature factors θ,
-half-saturations) and **Schijven et al. (2013)** (pathogen attachment /
-inactivation coefficients and their ranges).
+Sensitivity analysis of the physical slow-sand pathogen model. Parameter ranges
+and the reference SA/calibration methods are drawn from **Campos et al. (2006)**
+(biological rates, temperature factors θ, half-saturations) and **Schijven et al.
+(2013)** (pathogen attachment / inactivation coefficients). See
+`reference_methods.md` for a digest of how each paper did its own SA/calibration.
 
-## Staged plan (from the UQ reference)
+## Primary method — Logarithmic OAT (`log_oat_sensitivity.jl`)
 
-1. **Numerical uncertainty first** — mesh (Nz = 100/200/400) + tolerance study;
-   require numerical change in each QoI < 1–2 % of parameter-induced spread.
-   *(Feasible here because `run_proxy` keeps osmosis physical — see below.)*
-2. **Morris screening** (this harness) — ~22 uncertain quantities, µ\* (importance)
-   and σ (nonlinearity/interaction), `r·(k+1)` runs. **← implemented.**
-3. **Variance-based Sobol** on the retained 8–12 parameters (`Sᵢ`, `S_Tᵢ`),
-   N = 1000 → 2000–4000; bootstrap CIs. *(next stage — not yet built.)*
-4. **Calibration** of an identifiable 5–10-parameter subset (Bayesian).
+Per the updated instructions in `Logarithmic_OAT_Sensitivity_SSF_model.pdf`, the
+main analysis is a **logarithmic central one-at-a-time** study:
+
+- Build **one mature-filter state** (nominal model run to maturity); every
+  perturbed run starts from it, isolating the sensitivity of the *disturbance
+  response* rather than of the mature state itself.
+- **Disturbance:** an influent pathogen **pulse** (a seeding/challenge event, like
+  Schijven's column experiments). Removal `L(t) = log10(C_ref / c_PAT_out(t))`.
+- Perturb each θᵢ by **×2 and ×½** (bounded params θ≈1.05, β=0.99 are perturbed on
+  their deviation θ−1, 1−β). Measures over the post-disturbance window `[t_d,T]`:
+  - `sᵢ(t) = (L⁺ᵢ − L⁻ᵢ)/(2 ln 2) ≈ ∂L/∂ln θᵢ`
+  - **`Iᵢ = √⟨sᵢ²⟩`** (RMS log-sensitivity — *primary ranking*)
+  - `Iᵢᵐᵃˣ = max|sᵢ|`, `Dᵢᵐⁱⁿ` (effect on worst removal Lmin), `Aᵢ` (asymmetry →
+    nonlinearity/threshold).
+
+This is a direct generalization of **Campos (2006)**'s OAT sensitivity coefficient
+`SC = COV_out/COV_param` (a normalized log-sensitivity), evaluated on the
+pathogen-removal output and the disturbance-response scenario that **Schijven
+(2013)**'s scenario-forcing analysis motivates.
+
+Run: `julia --project=julia julia/analysis/log_oat_sensitivity.jl [tmature] [tpost] [ncells]`.
+Writes `results/log_oat/{measures.csv, L0.csv, curves_<param>.csv}` and prints
+rankings by `Iᵢ` and `Dᵢᵐⁱⁿ`.
+
+## Fuller UQ plan (from `Sensitivity_Analysis_UQ_SSF_model.pdf`)
+
+The log-OAT is stage 1. The broader plan, for when a global/interaction analysis
+is warranted:
+
+1. **Numerical uncertainty first** — mesh (Nz = 100/200/400) + tolerance study.
+2. **Morris screening** (`morris_screening.jl`, implemented) — global µ\*/σ over the
+   same 22 parameters; an alternative/complement to the OAT for interaction effects.
+3. **Variance-based Sobol** on the retained 8–12 parameters (`Sᵢ`, `S_Tᵢ`).
+4. **Calibration** of an identifiable subset (Bayesian; cf. Schijven's max-likelihood
+   + LOO cross-validation, Campos's 300-run Monte-Carlo least-squares).
 5. **Uncertainty propagation** to effluent predictions.
 
-Screen three forcing scenarios (the harness takes `tsim`/IC as args): filter
-**start-up**, **mature** operation, and a **disturbance** (influent/rate pulse).
+Both harnesses take `tsim`/IC as args to screen **start-up**, **mature**, and
+**disturbance** scenarios.
 
 ## Feasibility — why this runs on a workstation
 
@@ -89,9 +116,14 @@ ranked table. Retain the top-µ\* parameters for the Sobol stage.
 
 ## Status
 
-- ✅ Morris screening harness, QoIs, cited parameter table, proxy integration.
-- ✅ Reference data extracted to CSV (Campos2006, Schijven2013).
+- ✅ **Logarithmic OAT harness** (`log_oat_sensitivity.jl`) — mature-state IC +
+  pathogen-pulse disturbance, Iᵢ/Iᵢᵐᵃˣ/Dᵢᵐⁱⁿ/Aᵢ measures, cited nominals. Primary
+  method per the updated instructions.
+- ✅ Morris screening harness (`morris_screening.jl`) — global µ\*/σ, alternative.
+- ✅ Reference SA/calibration methods digested (`reference_methods.md`).
+- ✅ Reference data extracted to CSV (Campos2006, Schijven2013); Schijven Fig 1
+  measured points digitized to `data/schijven2013/fig1_digitized/`.
 - ☐ Mesh-convergence (numerical UQ) study.
 - ☐ Sobol variance-based stage on retained parameters.
 - ☐ Correlated sampling / Shapley for dependent inputs.
-- ☐ Mature + disturbance forcing scenarios (currently start-up from clean IC).
+- ☐ Render L⁺ᵢ−L₀ / L⁻ᵢ−L₀ curves (data in `results/log_oat/curves_*.csv`).
