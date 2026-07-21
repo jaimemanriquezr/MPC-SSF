@@ -155,7 +155,7 @@ function run_challenge(ms, m0, p::Union{P,Nothing}, value, ncells, tpost, nframe
                   n_frames=nframes, quiet=true)
     ts = times(r)
     cout = max.(concentration(r, "PAT", :flowing)[end, :], 1e-30)
-    return ts, log10.(Cref ./ cout), string(r.flag)
+    return ts, log10.(Cref ./ cout), string(r.flag), r.time_final
 end
 
 # ---- driver -----------------------------------------------------------------
@@ -167,44 +167,58 @@ function main(; tmature=3.0, tpost=1.5, ncells=30, nframes=60)
     ms = build_mature(m0, ncells, tmature)
 
     # baseline L0(t)
-    t0, L0, flag0 = run_challenge(ms, m0, nothing, 0.0, ncells, tpost, nframes)
-    win = t0 .>= TD                       # post-disturbance window mask
-    Lmin0 = minimum(L0[win])
+    t0, L0, flag0, tf0 = run_challenge(ms, m0, nothing, 0.0, ncells, tpost, nframes)
+    Lmin0 = minimum(L0[t0 .>= TD])
     writedlm(joinpath(outdir, "L0.csv"), hcat(t0, L0), ',')
-    @printf("baseline: flag=%s  window pts=%d  Lmean=%.3f  Lmin=%.3f\n\n",
-            flag0, count(win), mean(L0[win]), Lmin0)
+    @printf("baseline: flag=%s  Lmean=%.3f  Lmin=%.3f  (t_final=%.3f)\n\n",
+            flag0, mean(L0[t0 .>= TD]), Lmin0, tf0)
 
-    rows = Vector{Any}[["param","block","I_rms","I_max","D_min","I_min","asymmetry","flag+","flag-","source"]]
-    ranking = Tuple{String,String,Float64,Float64,Float64}[]
+    rows = Vector{Any}[["param","block","I_rms","I_max","D_min","I_min","asymmetry","flag+","flag-","clog_driver","source"]]
+    ranking = Tuple{String,String,Float64,Float64,Float64}[]   # OK-only params
+    clogged = Tuple{String,String,String,Float64}[]            # name, block, which±, t_clog
     for p in PARAMS
-        tp, Lp, fp = run_challenge(ms, m0, p, 2 * p.nominal,   ncells, tpost, nframes)  # ×2
-        tm, Lm, fm = run_challenge(ms, m0, p, 0.5 * p.nominal, ncells, tpost, nframes)  # ×1/2
-        # all runs share the frame grid (same t0, tpost, nframes) → align on window
+        tp, Lp, fp, tfp = run_challenge(ms, m0, p, 2 * p.nominal,   ncells, tpost, nframes)  # ×2
+        tm, Lm, fm, tfm = run_challenge(ms, m0, p, 0.5 * p.nominal, ncells, tpost, nframes)  # ×1/2
+        # A perturbation that clogs terminates early, leaving zero-filled (garbage)
+        # trailing frames. Mask the window to frames all three runs actually reached.
+        tvalid = min(tf0, tfp, tfm)
+        win = (t0 .>= TD) .& (t0 .<= tvalid + 1e-9)
+        is_clog = (fp != "OK") || (fm != "OK")
         s  = (Lp .- Lm) ./ (2LN2)
         sw = s[win]
-        Irms = sqrt(mean(sw .^ 2))
-        Imax = maximum(abs.(sw))
+        Irms = sqrt(mean(sw .^ 2)); Imax = maximum(abs.(sw))
         Lminp = minimum(Lp[win]); Lminm = minimum(Lm[win])
         Dmin = max(Lminp - Lmin0, Lminm - Lmin0)
         Imin = (Lminp - Lminm) / (2LN2)
         dp = Lp[win] .- L0[win]; dm = Lm[win] .- L0[win]
         asym = sqrt(sum((dp .+ dm) .^ 2)) / (sqrt(sum((dp .- dm) .^ 2)) + 1e-30)
-        push!(rows, [p.name, p.block, Irms, Imax, Dmin, Imin, asym, fp, fm, p.source])
+        push!(rows, [p.name, p.block, Irms, Imax, Dmin, Imin, asym, fp, fm, is_clog, p.source])
         writedlm(joinpath(outdir, "curves_$(p.name).csv"),
                  vcat(["t" "dL_plus" "dL_minus" "s"], hcat(tp, Lp .- L0, Lm .- L0, s)), ',')
-        push!(ranking, (p.name, p.block, Irms, Imax, Dmin))
-        @printf("  %-14s [%-9s] I_rms=%.3e  I_max=%.3e  D_min=%+.3e  asym=%.2f  (%s/%s)\n",
-                p.name, p.block, Irms, Imax, Dmin, asym, fp, fm)
+        if is_clog
+            which = fp != "OK" ? "×2" : "×½"
+            push!(clogged, (p.name, p.block, which, fp != "OK" ? tfp : tfm))
+        else
+            push!(ranking, (p.name, p.block, Irms, Imax, Dmin))
+        end
+        @printf("  %-14s [%-9s] I_rms=%.3e  I_max=%.3e  D_min=%+.3e  asym=%.2f  (%s/%s)%s\n",
+                p.name, p.block, Irms, Imax, Dmin, asym, fp, fm, is_clog ? "  ⚠CLOG" : "")
     end
     writedlm(joinpath(outdir, "measures.csv"), rows, ',')
 
-    println("\n── Ranking by RMS log-sensitivity I_i (primary) ──")
+    println("\n── Ranking by RMS log-sensitivity I_i (OK runs only; primary) ──")
     for (nm, bl, ir, im, dm) in sort(ranking; by=x->x[3], rev=true)
         @printf("  I_rms=%.3e  %-14s (%s)\n", ir, nm, bl)
     end
-    println("\n── Ranking by D_min (effect on worst removal) ──")
+    println("\n── Ranking by D_min (effect on worst removal; OK runs only) ──")
     for (nm, bl, ir, im, dm) in sort(ranking; by=x->abs(x[5]), rev=true)[1:min(8,length(ranking))]
         @printf("  |D_min|=%.3e  %-14s (%s)\n", abs(dm), nm, bl)
+    end
+    if !isempty(clogged)
+        println("\n── Clog-driving parameters (log-sensitivity undefined; reported separately) ──")
+        for (nm, bl, which, tc) in clogged
+            @printf("  %-14s (%s): %s perturbation drives clogging at t=%.3f\n", nm, bl, which, tc)
+        end
     end
     println("\nwrote ", outdir)
     return outdir
