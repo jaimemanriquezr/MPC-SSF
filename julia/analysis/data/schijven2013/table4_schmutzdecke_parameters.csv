@@ -1,0 +1,3 @@
+source,parameter,mean,standard_deviation,units,description
+Table4,f0,2.1e-4,4.3e-6,m degC,Schmutzdecke logistic-growth scale factor (common to MS2 and ECWR1 and all filters)
+Table4,f1,9.9e-2,6.0e-3,per day,Schmutzdecke logistic-growth rate coefficient (used as alpha*f1; common to MS2 and ECWR1 and all filters)

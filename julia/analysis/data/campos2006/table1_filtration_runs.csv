@@ -1,0 +1,6 @@
+source,filter,run,used_for,date_of_operation,duration_days,duration_hours,bed_depth_m
+Table 1,SSF A,1,Verification,July 16-October 30 1991,106,2544,0.70
+Table 1,SSF B,1,Calibration,July 16-October 23 1991,99,2376,0.70
+Table 1,SSF B,2,Calibration,October 25-March 25 1992,152,3648,0.65
+Table 1,SSF B,3,Verification,March 26-August 15 1992,142,3408,0.59
+Table 1,SSF B,4,Verification,August 26-January 5 1993,132,1320,0.59

@@ -1,0 +1,7 @@
+source,organism,filter_group,sticking_efficiency_alpha_mean,sticking_efficiency_alpha_sd,units,notes
+Table4,MS2,W+L,9.2e-3,2.2e-4,dimensionless,Weesperkarspel and Leiduin filters share same MS2 alpha
+Table4,MS2,D,4.4e-2,8.8e-3,dimensionless,"DUNEA sand (iron-oxide rich, stickier)"
+Table4,MS2,G,5.6e-3,7.8e-4,dimensionless,Groningen filter
+Table4,ECWR1,W+L,1.5e-1,6.7e-3,dimensionless,Weesperkarspel and Leiduin filters share same ECWR1 alpha
+Table4,ECWR1,D,7.1e-1,1.1e-2,dimensionless,"DUNEA sand (iron-oxide rich, stickier)"
+Table4,ECWR1,G,5.2e-2,2.6e-3,dimensionless,Groningen filter

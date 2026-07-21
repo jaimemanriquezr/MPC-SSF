@@ -1,0 +1,29 @@
+source,description,symbol,value,units
+Table 2,Gravitational acceleration,g,9.81,m s-2
+Table 2,Kinematic viscosity,v,1.00E-06,m2 s-1
+Table 2,Flow rate,q,0.2,m h-1
+Table 2,Filter area,Af,100,m2
+Table 2,Initial filter depth,L0,0.70,m
+Table 2,Density of algae,Da,1.00E+09,mg m-3
+Table 2,Mean filamentous algae diameter,df,3.30E-05,m
+Table 2,Growing time of the schmutzdecke layers,Tgrow,24,h
+Table 2,Period for startup of the schmutzdecke growth,Tlag,240,h
+Table 2,Ratio of dry weight to wet biomass,Abw,0.1,mg(dry) mg-1(wet)
+Table 2,Ratio of chlorophyll-a to carbon,Aca,25,mg C mg-1 Chla
+Table 2,Ratio of chlorophyll-a to nitrate,Ana,7,mg N mg-1 Chla
+Table 2,Ratio of carbon to phosphorus,Apc,0.025,mg P mg-1 C
+Table 2,Ratio of chlorophyll-a to phosphorus,Apa,0.75,mg P mg-1 Chla
+Table 2,Ratio of carbon to dry weight,Awc,0.5,mg C mg-1
+Table 2,Ratio of chlorophyll-a to dry weight,Awa,0.015,mg Chla mg-1
+Table 2,Temperature correction factor for kgmaxa,theta_kga,1.066,dimensionless
+Table 2,Temperature correction factor for kgmaxb,theta_kgb,1.047,dimensionless
+Table 2,Temperature correction factor for kgmaxp,theta_kgp,1.047,dimensionless
+Table 2,Temperature correction factor for kra,theta_kra,1.08,dimensionless
+Table 2,Temperature correction factor for krb,theta_krb,1.08,dimensionless
+Table 2,Temperature correction factor for krp,theta_krp,1.08,dimensionless
+Table 2,Temperature correction factor for Cgz,theta_Cga,1.08,dimensionless
+Table 2,Temperature correction factor for kp,theta_kp,1.08,dimensionless
+Table 2,Temperature correction factor for kh,theta_kh,1.08,dimensionless
+Table 2,Temperature correction factor for kn,theta_kn,1.08,dimensionless
+Table 2,Temperature correction factor for kdb,theta_kdb,1.08,dimensionless
+Table 2,Temperature correction factor for kdp,theta_kdp,1.08,dimensionless

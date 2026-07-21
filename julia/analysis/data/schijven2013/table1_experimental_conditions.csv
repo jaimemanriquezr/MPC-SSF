@@ -1,0 +1,14 @@
+source,experiment,location,temperature_C,age_schmutzdecke_days,filtration_rate_cm_per_h,grain_size_mm,filter_bed_depth_m,porosity,dispersivity_cm,notes
+Table1,W1,Weesperkarspel,7.5,56,45,0.50,1.15,0.45,0.56,MS2 and ECWR1 concurrent
+Table1,W2,Weesperkarspel,4.0,327,45,0.65,1.32,0.33,0.48,MS2 and ECWR1 concurrent
+Table1,W3,Weesperkarspel,19.5,217,45,0.65,1.26,0.37,2.0,MS2 and ECWR1 concurrent
+Table1,L1,Leiduin,16.0,553,45,0.29,1.54,0.39,0.38,MS2 only
+Table1,L2,Leiduin,11.7,12,30,0.29,1.54,0.39,0.38,MS2 and ECWR1 concurrent
+Table1,L3,Leiduin,10.6,81,30,0.29,1.44,0.39,0.38,MS2 and ECWR1 concurrent
+Table1,L4,Leiduin,9.4,4,30,0.29,1.44,0.39,0.38,MS2 and ECWR1 concurrent
+Table1,L5,Leiduin,9.9,1105,30,0.29,1.54,0.39,0.38,ECWR1 only
+Table1,D1,DUNEA,13,137,30,0.53,1.24,0.40,1.2,MS2 and ECWR1 concurrent; D-sand (iron-oxide rich)
+Table1,D2,DUNEA,14,4,30,0.53,1.24,0.40,1.2,MS2 and ECWR1 concurrent; Schmutzdecke just scraped
+Table1,D3,DUNEA,16,53,30,0.53,1.24,0.40,1.2,MS2 and ECWR1 concurrent
+Table1,G1,Groningen,16.8,189,20,0.50,1.61,0.32,2.1,MS2 and ECWR1 concurrent
+Table1,G2,Groningen,4.5,312,20,0.50,1.61,0.32,2.1,MS2 and ECWR1 concurrent

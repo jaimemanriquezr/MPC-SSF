@@ -1,0 +1,13 @@
+source,organism,experiment,katt1_per_day,kdet1_per_day,katt2_per_day,kdet2_per_day,mu_l_per_day,mu_s_per_day,lambda_per_day,log10_removal_Cx_C0
+Table3,ECWR1,W1,102,0.035,94,3.1,0.07,0.07,70,1.4
+Table3,ECWR1,W2,138,0.15,64,67,0.00,0.35,96,0.94
+Table3,ECWR1,W3,190,0.12,128,66,0.61,0.62,161,3.0
+Table3,ECWR1,L2,61,0.047,22,3.6,0.34,0.34,55,2.0
+Table3,ECWR1,L3,123,0.044,145,152,0.34,0.34,110,3.6
+Table3,ECWR1,L4,82,0.045,22,5.8,0.31,0.31,74,2.4
+Table3,ECWR1,L5,177,0.041,63,5.1,0.33,0.33,161,4.3
+Table3,ECWR1,D1,186,0.043,89,11,0.33,0.33,167,4.5
+Table3,ECWR1,D2,118,0.12,52,26,0.18,0.78,104,2.9
+Table3,ECWR1,D3,211,0.032,45,3.8,0.28,0.28,192,5.1
+Table3,ECWR1,G1,60,0,0,0,0.17,0.17,60,2.5
+Table3,ECWR1,G2,37,0.17,0,0,0.30,0.30,24,1.1

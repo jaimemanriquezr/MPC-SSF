@@ -1,0 +1,11 @@
+source,description,run,value,units,notes
+Page 9 text,Average schmutzdecke thickness,Run 1,1.06,cm,Uncovered SSF B; predicted/observed average
+Page 9 text,Average schmutzdecke biomass (SB),Run 1,2844,mg Chla m-2,Uncovered SSF B
+Page 9 text,Average schmutzdecke thickness,Run 2,1.14,cm,Uncovered SSF B
+Page 9 text,Average schmutzdecke biomass (SB),Run 2,2208,mg Chla m-2,Uncovered SSF B
+Page 7 text,Influent protozoa concentration (adopted range) min,,5.8E-11,mg C L-1,Assumed 10-20% of bacterial biomass (Galal 1989)
+Page 7 text,Influent protozoa concentration (adopted range) max,,2.8E-05,mg C L-1,Assumed 10-20% of bacterial biomass (Galal 1989)
+Page 12 text,kgmaxb reduced in Strategy 3 (from),,0.01,h-1,Bacteria growth rate before reduction
+Page 12 text,kgmaxb reduced in Strategy 3 (to),,0.006,h-1,Reduced value based on Galal (1989)
+Page 12 text,SSF A filtration Run 1 duration,,106,days,Slightly longer (by 7 days) than SSF B Run 1 (99 days)
+Page 7 text,Time step used in Euler numerical solution,,0.1,h,Sand bed discretized into 1 cm sublayers
