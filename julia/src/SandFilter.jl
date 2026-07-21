@@ -24,14 +24,16 @@ default_light_irradiation(t) = 0.8 * max(sin(2π * (t - 13 / 48)) + 31 / 50, 0) 
 
 """
     SandFilter(; height=1.0, depth=1.0, sand_porosity=0.4, sand_roughness=5e-3,
-                 inflow_velocity=0.3*24, temperature=15+273,
+                 inflow_velocity=0.3*24, temperature=15,
                  light_irradiation=default_light_irradiation,
                  light_attenuation_water=0.32, light_attenuation_sand=1500.0,
                  grid=nothing)
 
 Filter geometry and discretization. Defaults mirror `SandFilter.m`. `depth` is
 the packed-sand depth (z ≥ 0) and `height` the supernatant water height
-(z ≤ 0); the sand surface is at z = 0.
+(z ≤ 0); the sand surface is at z = 0. `temperature` is in **°C** — it is fed to
+`compute_rate` (default `scale=:celsius`), so it must be a Celsius value (default
+15 °C), not Kelvin.
 """
 Base.@kwdef mutable struct SandFilter
     height::Float64 = 1.0
@@ -39,7 +41,7 @@ Base.@kwdef mutable struct SandFilter
     sand_porosity::Float64 = 0.4
     sand_roughness::Float64 = 5e-3
     inflow_velocity::Float64 = 0.3 * 24
-    temperature::Float64 = 15 + 273
+    temperature::Float64 = 15          # °C (fed to compute_rate with scale=:celsius)
     light_irradiation::Function = default_light_irradiation
     light_attenuation_water::Float64 = 0.32
     light_attenuation_sand::Float64 = 1500.0

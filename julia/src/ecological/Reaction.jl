@@ -61,14 +61,23 @@ end
 """
     compute_rate(rx::Reaction, temperature; scale=:celsius, nominal_temperature=20)
 
-Temperature-corrected reaction rate (port of `computeRate.m`):
+Temperature-corrected reaction rate:
 
-    μ = μ₂₀ · θ^(T/T_nom − 1)
+    μ = μ₂₀ · θ^(T − T_nom)
 
-with `μ₂₀ = rx.nominal_rate`, `θ = rx.temperature_correction_factor`. For
-`scale = :celsius`, both `temperature` and `nominal_temperature` are shifted by
-273 K before forming the ratio; for `scale = :kelvin` they are used as given.
-Broadcast over a vector of reactions: `compute_rate.(reactions, T)`.
+with `μ₂₀ = rx.nominal_rate`, `θ = rx.temperature_correction_factor`. `θ`
+(≈ 1.05–1.08) is calibrated against this temperature *difference* form
+(θ^(T − 20 °C)), so the exponent is the difference, not the dimensionless ratio
+`T/T_nom − 1`. Because it is a difference, the 273 K shift cancels: for
+`scale = :celsius` the exponent is `temperature − nominal_temperature` in °C; for
+`scale = :kelvin` pass both in kelvin (`nominal_temperature = 293`). Broadcast
+over a vector of reactions: `compute_rate.(reactions, T)`.
+
+NOTE: earlier ports (and MPC-SSF `computeRate.m`) used the dimensionless ratio
+`θ^(T/T_nom − 1)`, which makes the response ~293× too weak unless θ is
+recalibrated to θ^293; the authoritative slow-sand `run_biofilm.m` uses
+`θ^(293 − T_K)`, which has the sign flipped. Both coincide with this form only at
+the 20 °C reference.
 """
 function compute_rate(rx::Reaction, temperature::Real;
                       scale::Symbol=:celsius, nominal_temperature::Real=20)
@@ -83,7 +92,7 @@ function compute_rate(rx::Reaction, temperature::Real;
     else
         throw(ArgumentError("Invalid temperature scale $scale (use :celsius or :kelvin)"))
     end
-    return μ20 * θ^(T / Tnom - 1)
+    return μ20 * θ^(T - Tnom)
 end
 
 # --- (component × reaction) lookup matrices ---------------------------------
