@@ -38,8 +38,12 @@ const PAT_IN   = INFLUENT_BASE[4]
 const PULSE_FACTOR = 10.0
 const PULSE_T0 = 0.1              # pulse start (day) = disturbance time t_d
 const PULSE_T1 = 0.3              # pulse end (day)
-const TD = PULSE_T0               # analysis window start
+const TD = PULSE_T0               # analysis window start (pulse scenario)
+const FLOW_SURGE = 2.0           # flowstep: ×2 filtration velocity disturbance
 const LN2 = log(2)
+
+# analysis-window start per disturbance scenario
+_td(dist) = dist === :pulse ? PULSE_T0 : 0.0
 
 # influent as a function of time: PAT pulse over [T0,T1], ×pat_mult ambient else.
 function challenge_inflow(pat_mult)
@@ -50,6 +54,15 @@ function challenge_inflow(pat_mult)
         return v
     end
     return infl, Cref
+end
+
+# inflow + removal reference per disturbance. pulse → PAT pulse, Cref = pulse peak;
+# startup/flowstep → constant influent, Cref = ambient PAT (measures ripening /
+# flow-surge response against the constant challenge).
+function make_inflow(disturbance, pat_mult)
+    disturbance === :pulse && return challenge_inflow(pat_mult)
+    Cref = PAT_IN * pat_mult
+    return (t -> (v = copy(INFLUENT_BASE); v[4] = PAT_IN * pat_mult; v)), Cref
 end
 
 # ---- immutable-struct remake helpers ---------------------------------------
@@ -135,8 +148,11 @@ function build_mature(m0, ncells, tmature)
     return final_state(r)
 end
 
-# ---- one challenge run: returns (times, L(t), flag) -------------------------
-function run_challenge(ms, m0, p::Union{P,Nothing}, value, ncells, tpost, nframes)
+# ---- one challenge run: returns (times, L(t), flag, t_final) ----------------
+# disturbance ∈ (:pulse, :startup, :flowstep). :pulse/:flowstep re-home the shared
+# mature state `ms`; :startup uses a clean IC (ms ignored, may be `nothing`).
+function run_challenge(ms, m0, p::Union{P,Nothing}, value, ncells, tpost, nframes;
+                       disturbance::Symbol=:pulse)
     f2 = addgridpoints(SandFilter(temperature=15.0), ncells)
     m2 = m0
     pat_mult = 1.0
@@ -147,10 +163,11 @@ function run_challenge(ms, m0, p::Union{P,Nothing}, value, ncells, tpost, nframe
             f2, m2 = p.apply(f2, m2, value)
         end
     end
-    # re-home the mature concentrations onto the (possibly perturbed) f2/m2 at t=0
-    s = State(f2, m2, 0.0, deepcopy(ms.global_concentration),
+    disturbance === :flowstep && (f2.inflow_velocity *= FLOW_SURGE)   # hydraulic surge
+    s = disturbance === :startup ? State(f2, m2) :                     # clean IC (ripening)
+        State(f2, m2, 0.0, deepcopy(ms.global_concentration),          # re-homed mature IC
               copy(ms.enclosed_water_volume), deepcopy(ms.velocity))
-    infl, Cref = challenge_inflow(pat_mult)
+    infl, Cref = make_inflow(disturbance, pat_mult)
     r = run_proxy(s; simulation_time=tpost, inflow_concentrations=infl,
                   n_frames=nframes, quiet=true)
     ts = times(r)
@@ -159,30 +176,33 @@ function run_challenge(ms, m0, p::Union{P,Nothing}, value, ncells, tpost, nframe
 end
 
 # ---- driver -----------------------------------------------------------------
-function main(; tmature=3.0, tpost=1.5, ncells=30, nframes=60)
+function main(; tmature=3.0, tpost=1.5, ncells=30, nframes=60, disturbance::Symbol=:pulse)
     m0 = pathogen_model()
-    outdir = joinpath(@__DIR__, "results", "log_oat"); isdir(outdir) || mkpath(outdir)
-    @info "Log-OAT sensitivity" nparams=length(PARAMS) tmature tpost ncells runs=2*length(PARAMS)+1
+    outdir = joinpath(@__DIR__, "results", "log_oat_$(disturbance)"); isdir(outdir) || mkpath(outdir)
+    td = _td(disturbance)
+    @info "Log-OAT sensitivity" disturbance nparams=length(PARAMS) tmature tpost ncells runs=2*length(PARAMS)+1
 
-    ms = build_mature(m0, ncells, tmature)
+    # :startup uses a clean IC (the disturbance IS the ripening); others share a
+    # mature state so we isolate the disturbance response.
+    ms = disturbance === :startup ? nothing : build_mature(m0, ncells, tmature)
 
     # baseline L0(t)
-    t0, L0, flag0, tf0 = run_challenge(ms, m0, nothing, 0.0, ncells, tpost, nframes)
-    Lmin0 = minimum(L0[t0 .>= TD])
+    t0, L0, flag0, tf0 = run_challenge(ms, m0, nothing, 0.0, ncells, tpost, nframes; disturbance)
+    Lmin0 = minimum(L0[t0 .>= td])
     writedlm(joinpath(outdir, "L0.csv"), hcat(t0, L0), ',')
-    @printf("baseline: flag=%s  Lmean=%.3f  Lmin=%.3f  (t_final=%.3f)\n\n",
-            flag0, mean(L0[t0 .>= TD]), Lmin0, tf0)
+    @printf("baseline (%s): flag=%s  Lmean=%.3f  Lmin=%.3f  (t_final=%.3f)\n\n",
+            disturbance, flag0, mean(L0[t0 .>= td]), Lmin0, tf0)
 
     rows = Vector{Any}[["param","block","I_rms","I_max","D_min","I_min","asymmetry","flag+","flag-","clog_driver","source"]]
     ranking = Tuple{String,String,Float64,Float64,Float64}[]   # OK-only params
     clogged = Tuple{String,String,String,Float64}[]            # name, block, which±, t_clog
     for p in PARAMS
-        tp, Lp, fp, tfp = run_challenge(ms, m0, p, 2 * p.nominal,   ncells, tpost, nframes)  # ×2
-        tm, Lm, fm, tfm = run_challenge(ms, m0, p, 0.5 * p.nominal, ncells, tpost, nframes)  # ×1/2
+        tp, Lp, fp, tfp = run_challenge(ms, m0, p, 2 * p.nominal,   ncells, tpost, nframes; disturbance)  # ×2
+        tm, Lm, fm, tfm = run_challenge(ms, m0, p, 0.5 * p.nominal, ncells, tpost, nframes; disturbance)  # ×1/2
         # A perturbation that clogs terminates early, leaving zero-filled (garbage)
         # trailing frames. Mask the window to frames all three runs actually reached.
         tvalid = min(tf0, tfp, tfm)
-        win = (t0 .>= TD) .& (t0 .<= tvalid + 1e-9)
+        win = (t0 .>= td) .& (t0 .<= tvalid + 1e-9)
         is_clog = (fp != "OK") || (fm != "OK")
         s  = (Lp .- Lm) ./ (2LN2)
         sw = s[win]
@@ -228,5 +248,6 @@ if abspath(PROGRAM_FILE) == @__FILE__
     tmat = length(ARGS) >= 1 ? parse(Float64, ARGS[1]) : 3.0
     tpost = length(ARGS) >= 2 ? parse(Float64, ARGS[2]) : 1.5
     ncells = length(ARGS) >= 3 ? parse(Int, ARGS[3]) : 30
-    main(; tmature=tmat, tpost=tpost, ncells=ncells)
+    dist = length(ARGS) >= 4 ? Symbol(ARGS[4]) : :pulse   # pulse | startup | flowstep
+    main(; tmature=tmat, tpost=tpost, ncells=ncells, disturbance=dist)
 end
