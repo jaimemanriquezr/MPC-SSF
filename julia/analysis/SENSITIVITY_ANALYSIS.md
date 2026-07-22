@@ -117,13 +117,24 @@ ranked table. Retain the top-µ\* parameters for the Sobol stage.
 ## Status
 
 - ✅ **Logarithmic OAT harness** (`log_oat_sensitivity.jl`) — mature-state IC +
-  pathogen-pulse disturbance, Iᵢ/Iᵢᵐᵃˣ/Dᵢᵐⁱⁿ/Aᵢ measures, cited nominals. Primary
-  method per the updated instructions.
+  disturbance, Iᵢ/Iᵢᵐᵃˣ/Dᵢᵐⁱⁿ/Aᵢ measures, cited nominals, clog-driver separation.
+  Primary method. Now supports 3 **disturbance scenarios** via the 4th CLI arg:
+  `pulse` (contamination challenge), `startup` (clean-IC ripening), `flowstep`
+  (×2 velocity surge). Results in `results/log_oat_<disturbance>/`.
 - ✅ Morris screening harness (`morris_screening.jl`) — global µ\*/σ, alternative.
+- ✅ **Mesh-convergence** (`mesh_convergence.jl`) — QoI vs ncells=15..50; numerical-
+  uncertainty check (UQ step 1). → `results/mesh_convergence.csv`.
+- ✅ **Sobol** (`sobol_sensitivity.jl`) — Saltelli + Jansen/Saltelli Sᵢ/S_Tᵢ with
+  bootstrap CIs on the 8 retained non-clog params. → `results/sobol/`.
 - ✅ Reference SA/calibration methods digested (`reference_methods.md`).
-- ✅ Reference data extracted to CSV (Campos2006, Schijven2013); Schijven Fig 1
-  measured points digitized to `data/schijven2013/fig1_digitized/`.
-- ☐ Mesh-convergence (numerical UQ) study.
-- ☐ Sobol variance-based stage on retained parameters.
+- ✅ Reference data extracted (Campos2006, Schijven2013); Fig 1 points digitized.
+- ✅ Rendered Iᵢ ranking + L⁺ᵢ−L₀/L⁻ᵢ−L₀ curves (`render_log_oat.jl`).
 - ☐ Correlated sampling / Shapley for dependent inputs.
-- ☐ Render L⁺ᵢ−L₀ / L⁻ᵢ−L₀ curves (data in `results/log_oat/curves_*.csv`).
+- ☐ Bayesian calibration of the identifiable subset.
+
+### Pulse-scenario headline (mature + 10× PAT pulse, 30 cells)
+Primary Iᵢ: **attach_sand 0.53 ≈ sand_pathogen 0.48** ≫ influent_PAT 0.14 >
+dispersivity 0.033 > temperature 0.018; growth kinetics negligible (influent
+HPO₄=0 ⇒ P-starved growth ⇒ **removal is attachment-controlled**). Dᵢᵐⁱⁿ (worst
+removal): sand_pathogen 0.90 > attach_sand 0.38. Clog-driving (separated):
+velocity×2, beta_porosity×½, zeta_0×½.
