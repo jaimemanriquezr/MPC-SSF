@@ -137,4 +137,14 @@ Primary Iᵢ: **attach_sand 0.53 ≈ sand_pathogen 0.48** ≫ influent_PAT 0.14 
 dispersivity 0.033 > temperature 0.018; growth kinetics negligible (influent
 HPO₄=0 ⇒ P-starved growth ⇒ **removal is attachment-controlled**). Dᵢᵐⁱⁿ (worst
 removal): sand_pathogen 0.90 > attach_sand 0.38. Clog-driving (separated):
-velocity×2, beta_porosity×½, zeta_0×½.
+velocity×2, beta_porosity×½, zeta_0×½ — **which** params drive failure is robust;
+their clog *times* are mesh-artifacts (qualitative only, see below).
+
+### Mesh / QoI validity (important — see `zero_cell_analysis.md`)
+The schmutzdecke regularization scales (roughness δ=5 mm, Cahn–Hilliard width
+√κ≈few mm) are **sub-grid** on any feasible mesh (dz≈12–50 mm). Consequence:
+- **Rank on integral QoIs** (Lmean, Lmin, D_min, Mb) — these converge (≲1–2% @ 30
+  cells) and their *sensitivity* is mesh-robust (`robustness_mesh.jl`: top-param
+  I_rms ratios 60/30 = 0.99–1.02). The rankings here are on this footing.
+- **Treat clogging qualitatively** — peak φ_b and clog times inherit a 1/dz peak
+  growth and are not converged; a quantitative clog study needs ncells≳400 (cluster).

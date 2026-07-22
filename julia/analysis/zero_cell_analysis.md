@@ -121,6 +121,29 @@ reliable, their exact timing is mesh-bound.
    parameters `beta_porosity` and `zeta_0` (which enter the biofilm mechanics) were
    reported *separately* from the log-sensitivity ranking rather than mixed into it.
 
+## Sensitivity-study implication (verified)
+
+The right response to the sub-grid scales is **not** to restrict the whole study to
+δ/κ-resolving meshes (dz ≲ 1–5 mm ⇒ ncells ≳ 400–2000, cluster-scale), but to use
+only **mesh-convergent QoIs** on the feasible mesh:
+
+- **Removal sensitivity (integral QoIs) — coarse mesh OK, verified.** A mesh-
+  robustness check of the Log-OAT `I_rms` (`robustness_mesh.jl`, 30 vs 60 cells)
+  shows the *sensitivity* — not just the baseline — is stable for the dominant
+  parameters: sand_pathogen ×0.99, attach_sand ×1.01, influent_PAT ×1.02
+  (ratios 60/30). Only the sub-0.03 tail wobbles (dispersivity ×1.29, temperature
+  ×0.86), which is the numerical-noise floor the convergence study already flagged;
+  the ordering is unchanged. So the removal ranking stands on the coarse mesh even
+  though δ and √κ are sub-grid, because Lmean is a conservative integral and its
+  sensitivity to the (surface-acting) attachment parameters is mesh-stable.
+- **Clogging / peak (pointwise-threshold QoIs) — coarse mesh gives qualitative
+  results only.** The clog-driving parameters are reported (which perturbations
+  push to failure), but the clog *times* and `phibmax` are mesh-artifacts and must
+  not be read quantitatively. A quantitative clogging study needs a ncells ≳ 400
+  cluster run that resolves δ (and ideally √κ).
+
+Rule of thumb adopted: **rank on integral QoIs; treat clogging qualitatively.**
+
 ## Pointers
 
 - Code: `SandFilter.jl` (`computeporosity`, `addgridpoints`, `gridzero`);
