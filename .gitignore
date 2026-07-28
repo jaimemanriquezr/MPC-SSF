@@ -33,3 +33,13 @@ codegen/
 
 # Cloud based storage dotfile
 .MATLABDriveTag
+
+# Project record-keeping (see CLAUDE.md "Plans and decisions"). The leading `.*/`
+# rule excludes all of .claude/, and git cannot re-include a path whose parent is
+# excluded — so un-exclude the directory, re-exclude its contents, then allow the
+# three record-keeping paths back in.
+!.claude/
+.claude/*
+!.claude/plans/
+!.claude/decisions/
+!.claude/JOURNAL.md
