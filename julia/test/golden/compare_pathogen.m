@@ -36,6 +36,15 @@ function out = compare_pathogen(refdir, options)
         options.Atol (1,1) double = 1e-7;
         options.Rtol (1,1) double = 1e-6;
         options.RelFloor (1,1) double = 1e-12;
+        % Variant knobs, mirroring PGOLD_LIGHT_RUN in compare_pathogen.jl. The
+        % defaults reproduce reference_pathogen (dark, uniform seed); the light
+        % variant needs DarkRespiration=0.1, LightConst=0.8 and a
+        % phototroph-heavy seed, which together exercise the dark-respiration
+        % light floor max(fdark, I*e^(1-I)).
+        options.DarkRespiration (1,1) double = 0.0;
+        options.LightConst double = [];   % [] -> default diel forcing
+        options.SeedMatrix double = [0.05 0.05 0.02 0.01];
+        options.SeedEnclosedLiquids (1,1) double = 1e-3;
     end
 
     % --- shared run spec (keep in sync with compare_pathogen.jl) -------------
@@ -45,12 +54,13 @@ function out = compare_pathogen(refdir, options)
     NFRAMES = 5;
     %          HET   PHO   POM  PAT   O2    IC    NH4   HPO4 DOM
     INFLOW = [1e-3, 1e-3, 0.0, 1e-5, 1e-2, 1e-2, 1e-5, 0.0, 1e-4] / 10;
-    SEED_MATRIX = [0.05, 0.05, 0.02, 0.01];   % HET PHO POM PAT
-    SEED_ENCL_L = 1e-3;                       % enclosed liquids
+    SEED_MATRIX = options.SeedMatrix;         % HET PHO POM PAT
+    SEED_ENCL_L = options.SeedEnclosedLiquids; % enclosed liquids
     SEED_WATER  = 0.1;                        % enclosed water volume
 
     results = runPathogenGolden(N, TSIM, DT, NFRAMES, INFLOW, ...
-                                SEED_MATRIX, SEED_ENCL_L, SEED_WATER);
+                                SEED_MATRIX, SEED_ENCL_L, SEED_WATER, ...
+                                options.DarkRespiration, options.LightConst);
 
     % --- reference metadata --------------------------------------------------
     meta = readMeta(fullfile(refdir, "meta.txt"));
@@ -139,10 +149,17 @@ function out = compare_pathogen(refdir, options)
     end
 end
 
-function results = runPathogenGolden(N, tsim, dt, nframes, inflow, seedMatrix, seedEnclL, seedWater)
-    filter = SandFilter(Temperature=20);   % degC -> theta^0 = 1 (mu = nominal)
+function results = runPathogenGolden(N, tsim, dt, nframes, inflow, seedMatrix, seedEnclL, seedWater, darkResp, lightConst)
+    % A constant light irradiation replaces the diel forcing when requested, so
+    % the light factor is time-invariant and the dark-respiration floor is what
+    % the comparison actually probes.
+    if isempty(lightConst)
+        filter = SandFilter(Temperature=20);   % degC -> theta^0 = 1 (mu = nominal)
+    else
+        filter = SandFilter(Temperature=20, LightIrradiation=@(t) 0*t + lightConst);
+    end
     filter = filter.addGridPoints(N);
-    model = modelPathogen(WaterFactor=1e-3, SandPathogen=0.1, DarkRespiration=0.0);
+    model = modelPathogen(WaterFactor=1e-3, SandPathogen=0.1, DarkRespiration=darkResp);
     state = State(filter, model);
 
     % Seed the same uniform mature biofilm as the reference: matrix particles +
