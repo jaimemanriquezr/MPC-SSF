@@ -210,6 +210,17 @@ lightDependency = [model.Reactions.IsLightDependent];
 minimumLight = minimumLight(lightDependency);
 lightFactor = ones(length(filter.GridPoints.Centers), length(model.Reactions));
 
+% Per-reaction phase efficiencies (1 x nRx, default 1.0). EfficiencyFlowing is
+% the general form of the pathogen model's water_factor (every reaction inert in
+% the flowing phase except bacterivory, scaled there by water_factor);
+% EfficiencyBiofilm scales the biofilm/enclosed phases. Mirrors
+% julia/src/simulate.jl:225-226.
+efficiencyBiofilm = reshape([model.Reactions.EfficiencyBiofilm], 1, []);
+efficiencyFlowing = reshape([model.Reactions.EfficiencyFlowing], 1, []);
+% Per-particle bare-sand attachment scaling (1 x kP, default 1.0); the pathogen
+% model's sand_pathogen. Mirrors julia/src/simulate.jl:228.
+sandFactors = reshape([model.Particles.SandAttachmentFactor], 1, kP);
+
 if isnumeric(inflowConcentrations)
     globalConcInflow = [inflowConcentrations(:)].';
 end
@@ -293,9 +304,11 @@ while t < timeStart + simulationTime
     % for the global dark_respiration. Equal to the old form when either is 0.
     lightFactor(:, lightDependency) = max(minimumLight, lightEffective);
 
-    ecoRxBiofilm = evaluateReactions(localBiofilm, listK, phiBiofilm, muRates, lightFactor, listOrder);
-    ecoRxEnclosed = evaluateReactions(localEnclosed, listK, phiEnclosed, muRates, lightFactor, listOrder);
-    ecoRxFlowing = evaluateReactions(localFlowing, listK, phiFlowing, muRates, lightFactor, listOrder);
+    % Phase efficiencies scale each reaction per region (defaults 1.0, so this
+    % reduces to the unscaled rates for every pre-existing preset).
+    ecoRxBiofilm = efficiencyBiofilm.*evaluateReactions(localBiofilm, listK, phiBiofilm, muRates, lightFactor, listOrder);
+    ecoRxEnclosed = efficiencyBiofilm.*evaluateReactions(localEnclosed, listK, phiEnclosed, muRates, lightFactor, listOrder);
+    ecoRxFlowing = efficiencyFlowing.*evaluateReactions(localFlowing, listK, phiFlowing, muRates, lightFactor, listOrder);
 
     ecoRxM = ecoRxBiofilm*sigmaParticles';
     ecoRxPe = ecoRxEnclosed*sigmaParticles';
@@ -304,7 +317,12 @@ while t < timeStart + simulationTime
     ecoRxLf = ecoRxFlowing*sigmaLiquids';
 
     attE = attachmentEnclosedFactor.*globalEnclosedP.*attachmentRates;
-    attF = attachmentFlowingFactor.*globalFlowingP.*attachmentRates;
+    % Flowing attachment splits into a bare-sand term (scaled per particle by
+    % SandAttachmentFactor) and a biofilm term. With every factor 1.0 this is
+    % identically attachmentFlowingFactor.*globalFlowingP.*attachmentRates.
+    % Mirrors julia/src/simulate.jl:385-386. (N x 1) .* (1 x kP) -> N x kP.
+    attachmentFlowingFactorP = (1 - porosityCenters).*sandFactors + porosityCenters.*phiBiofilm;
+    attF = attachmentFlowingFactorP.*globalFlowingP.*attachmentRates;
 
     velFlowingCenters = .5*(velFlowing(2:end) + velFlowing(1:end-1));
     detM = model.DetachmentFunction(velFlowingCenters).*globalMatrix;

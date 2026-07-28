@@ -33,7 +33,9 @@ classdef Model
                 input.Zeta0 double = [];
                 input.Zeta1 double = [];
                 input.MobilityFunction function_handle = @(u) u .* (1 - u);
-                input.PotentialGradient function_handle = @(u) 0.25*((u.^2).*((1 - u).^2));
+                % No default: its absence signals that CahnHilliardModel should
+                % build the published Zeta1-dependent handle. See below.
+                input.PotentialGradient function_handle
 
                 input.WaterDensity double = 998;
                 input.DetachmentFunction function_handle = @(v, qnom) sqrt(abs(v)/qnom);
@@ -61,11 +63,25 @@ classdef Model
                     end
                     for superField = propNames(contains(propNames, "SubModel")).'
                         for field = string(fieldnames(obj.(superField)).')
+                            if ~isfield(input, field)
+                                continue    % optional arg genuinely not supplied
+                            end
                             inputValue = input.(field);
                             if ~isempty(inputValue)
                                 obj.(superField).(field) = inputValue;
                             end
                         end
+                    end
+                    % PotentialGradient closes over Zeta1, and the loop above
+                    % assigns Zeta1 field-by-field AFTER construction -- which
+                    % leaves the handle built from the old Zeta1. Rebuild through
+                    % the constructor so the published form is the single source
+                    % of truth. Skipped when the caller supplied a handle.
+                    if ~isfield(input, "PotentialGradient")
+                        c = obj.CohesionSubModel;
+                        obj.CohesionSubModel = CahnHilliardModel(Kappa=c.Kappa, ...
+                            Zeta0=c.Zeta0, Zeta1=c.Zeta1, ...
+                            MobilityFunction=c.MobilityFunction);
                     end
                 case {"Lund", "Rosenqvist"}
                     obj =  presets.modelLund();
