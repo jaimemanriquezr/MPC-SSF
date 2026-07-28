@@ -39,7 +39,10 @@ const PULSE_FACTOR = 10.0
 const PULSE_T0 = 0.1              # pulse start (day) = disturbance time t_d
 const PULSE_T1 = 0.3              # pulse end (day)
 const TD = PULSE_T0               # analysis window start (pulse scenario)
-const FLOW_SURGE = 2.0           # flowstep: ×2 filtration velocity disturbance
+# flowstep surge factor. ×2 clogs the mature filter within ~1 day (baseline AND
+# all perturbations → no ranking), so use a milder ×1.4 surge that stresses removal
+# without clogging the baseline.
+const FLOW_SURGE = 1.4
 const LN2 = log(2)
 
 # analysis-window start per disturbance scenario
@@ -105,11 +108,26 @@ set_disp() = (f, m, v) -> (f, _mdl(m; components=Component[
 set_transport_P() = (f, m, v) -> (f, _mdl(m; components=Component[
     c isa Particle ? _pt(c; transport_rate=v) : c for c in m.components]))
 set_beta_gap() = (f, m, gap) -> (f, _mdl(m; biofilm_porosity=1 - gap))    # gap = 1−β
-set_zeta0() = (f, m, v) -> (f, _mdl(m; cohesion_submodel=CahnHilliardModel(
-    kappa=m.cohesion_submodel.kappa, zeta_0=v, zeta_1=m.cohesion_submodel.zeta_1)))
+# Cohesion setters. `potential_gradient` closes over `zeta_1` (see
+# CahnHilliardModel.jl), so kappa/zeta_0 must carry the existing handles through,
+# while zeta_1 must deliberately OMIT potential_gradient so it regenerates from the
+# new value. Passing it through in set_zeta1 would change the field and leave the
+# physics untouched -- a silent zero sensitivity.
+_ch(c; kw...) = CahnHilliardModel(; (; kappa=c.kappa, zeta_0=c.zeta_0, zeta_1=c.zeta_1,
+                                      mobility=c.mobility,
+                                      potential_gradient=c.potential_gradient, kw...)...)
+set_zeta0() = (f, m, v) -> (f, _mdl(m; cohesion_submodel=_ch(m.cohesion_submodel; zeta_0=v)))
+set_kappa() = (f, m, v) -> (f, _mdl(m; cohesion_submodel=_ch(m.cohesion_submodel; kappa=v)))
+set_zeta1() = (f, m, v) -> (f, _mdl(m; cohesion_submodel=CahnHilliardModel(
+    kappa=m.cohesion_submodel.kappa, zeta_0=m.cohesion_submodel.zeta_0, zeta_1=v,
+    mobility=m.cohesion_submodel.mobility)))   # potential_gradient regenerates from v
 set_detach(nom) = (f, m, v) -> (f, _mdl(m; detachment = w -> (v/nom) .* m.detachment(w)))
 set_velocity() = (f, m, v) -> (f.inflow_velocity = v; (f, m))
 set_temp() = (f, m, v) -> (f.temperature = v; (f, m))
+set_light_water() = (f, m, v) -> (f.light_attenuation_water = v; (f, m))
+set_light_sand() = (f, m, v) -> (f.light_attenuation_sand = v; (f, m))
+set_attenuation() = (f, m, v) -> (f, _mdl(m; components=Component[
+    c isa Particle ? _pt(c; attenuation=v) : c for c in m.components]))
 noop() = (f, m, v) -> (f, m)   # for pat-mult params (handled in evaluate)
 
 # The parameter set. Ranges/provenance cited from Campos2006 & Schijven2013 (the
@@ -136,7 +154,21 @@ const PARAMS = P[
     P("bacterivory",   "pathogen",  8.0,     "Manriquez B.4 p̂_PAT",                        set_rate(["Bacterivory"])),
     P("beta_porosity", "biofilm",   0.01,    "Lund β=0.99 (gap 1−β)",                      set_beta_gap()),
     P("zeta_0",        "biofilm",   1.0e2,   "Cahn-Hilliard cohesion",                     set_zeta0()),
+    # Cohesion parameters that were previously unswept. kappa is SUB-GRID at every
+    # feasible mesh (dz=32.8 mm vs sqrt(kappa)=1.0 mm at ncells=30, a 33x violation of
+    # the manuscript's dz < sqrt(kappa) rule), so rank it on integral QoIs only. zeta_1
+    # is only meaningful since the potential was fixed to the published form; note the
+    # publication models (SDparameters*.mat) use 0.005, not this preset's 0.01.
+    P("kappa",         "biofilm",   1.0e-6,  "Cahn-Hilliard interfacial width (sub-grid)", set_kappa()),
+    P("zeta_1",        "biofilm",   1.0e-2,  "Cahn-Hilliard stable-fraction parameter",    set_zeta1()),
     P("detach_scale",  "biofilm",   1.0,     "detachment-law scale",                       set_detach(1.0)),
+    # Light block: added for reviewer R1, who asked about light attenuation. Note these are
+    # only informative in the :startup scenario — :pulse/:flowstep share a mature state built
+    # under nominal light, so a challenge-only light perturbation cannot move phototroph
+    # biomass there. See .claude/decisions/2026-07-28-light-oat-startup-scenario.md.
+    P("light_att_water", "light",   0.32,    "Lund supernatant optical depth",             set_light_water()),
+    P("light_att_sand",  "light",   1500.0,  "Lund sand-bed optical depth",                set_light_sand()),
+    P("attenuation_P",   "light",   0.094,   "Lund biofilm self-shading (all particles)",  set_attenuation()),
 ]
 
 # ---- build the shared mature state (nominal model) --------------------------

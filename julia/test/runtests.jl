@@ -93,7 +93,16 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         # Default mobility u(1-u) and potential gradient, scalar + vector.
         @test ch.mobility(0.5) ≈ 0.25
         @test ch.mobility([0.0, 0.5, 1.0]) ≈ [0.0, 0.25, 0.0]
-        @test ch.potential_gradient(0.5) ≈ 0.25 * (0.25 * 0.25)
+        # Published potential dpsi/du = u^2 (u - 3 zeta_1 / 2); degenerates to u^3
+        # when zeta_1 = 0 (see .claude/decisions/2026-07-28-published-cohesion-potential.md).
+        @test ch.potential_gradient(0.5) ≈ 0.125
+        @test ch.potential_gradient([0.0, 0.5]) ≈ [0.0, 0.125]
+        # With zeta_1 set it must reproduce the handles baked into the legacy .mat
+        # models, and zeta_1 must actually move the potential.
+        ch2 = CahnHilliardModel(kappa=1e-7, zeta_0=1e3, zeta_1=0.005)
+        @test ch2.potential_gradient(0.05) ≈ 0.05^2 * (0.05 - 3 * (1 / 200) / 2)
+        @test ch2.potential_gradient(0.63) ≈ 0.63^2 * (0.63 - 0.0075)
+        @test ch2.potential_gradient(0.05) != ch.potential_gradient(0.05)
     end
 
     @testset "SandFilter grid" begin
