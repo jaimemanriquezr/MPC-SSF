@@ -66,9 +66,19 @@ function main(; N=48, ncells=25, tpost=1.0, nframes=30, tmature=3.0, seed=202607
     A = rand(rng, N, k); B = rand(rng, N, k)
     ev(row) = eval_qoi(row, ms, m0, ncells, tpost, nframes)
 
-    nclog = Ref(0)
-    run_matrix(M) = map(1:size(M,1)) do i
-        y, fl = ev(@view M[i, :]); fl == "OK" || (nclog[] += 1); y
+    # Each row is an independent simulation (own filter, own State, only reads
+    # `ms`), so the design matrix parallelises across threads. Needed to make a
+    # useful N reachable: N*(k+2) runs at ~1.7 min each is days on one core.
+    # nclog is atomic because threads increment it concurrently.
+    nclog = Threads.Atomic{Int}(0)
+    function run_matrix(M)
+        y = Vector{Float64}(undef, size(M, 1))
+        Threads.@threads for i in 1:size(M, 1)
+            yi, fl = ev(@view M[i, :])
+            fl == "OK" || Threads.atomic_add!(nclog, 1)
+            y[i] = yi
+        end
+        return y
     end
     yA = run_matrix(A); @printf("A done (%d clog)\n", nclog[])
     yB = run_matrix(B); @printf("B done (%d clog cum)\n", nclog[])
