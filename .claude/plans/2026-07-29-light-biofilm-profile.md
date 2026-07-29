@@ -139,6 +139,50 @@ not wall-clock.
 - `slurm/lightsweep.sbatch` on cosmos — new
 - `julia/analysis/results/light_profile/` — outputs
 
+## Step 5 result (measured 2026-07-29, job 3428150, all five tasks COMPLETED)
+
+7 sim-days, 500 cells, δ = 20 mm, dt = 3e-7, all `flag = OK`, 4:47–5:40 wall each.
+
+| amplitude | z_peak (mm) | φ_b peak | M(z<0) | M(total) | frac above |
+|---|---|---|---|---|---|
+| 0.018 | +2.00 | 0.02673 | 2.367e-4 | 3.405e-3 | 0.070 |
+| 0.05 | +2.00 | **0.02679** | **2.380e-4** | 3.408e-3 | 0.070 |
+| 0.2 | +2.00 | 0.02243 | 1.861e-4 | 2.764e-3 | 0.067 |
+| 0.8 (default) | +2.00 | 0.02110 | 1.727e-4 | 2.580e-3 | 0.067 |
+| 3.2 | +2.00 | 0.02079 | 1.631e-4 | 2.530e-3 | 0.064 |
+
+**Jaime's hypothesis is contradicted.** Raising irradiance does not put more biofilm above
+z = 0. Supernatant mass *falls* 31% from its optimum, and total mass falls 26%.
+
+**There is a genuine interior optimum at A ≈ 0.05**, close to the A ≈ 0.018 predicted for
+`I_eff` = 1 at the supernatant top. Both φ_b peak and M(z<0) are non-monotonic — 0.05
+slightly exceeds 0.018 before the decline. This is the photoinhibition signature, measured.
+
+### But QoI (a) — the location of the peak — is the wrong observable
+
+`z_peak` is **+2.00 mm at every amplitude**, and that is not a coincidence or a
+sub-grid shift. The profile around it:
+
+```
+z = -2.0 mm : 0.01493      z = +2.0 mm : 0.02673   <- argmax
+z =  0.0 mm : 0.01508      z = +4.0 mm : 0.02652
+                           z = +6.0 mm : 0.02633
+```
+
+φ_b nearly doubles across the sand surface (0.0151 → 0.0267, a 77% step over one cell)
+and then decays *monotonically* downward. There is no interior maximum. The argmax is
+simply the first in-bed cell, and it is pinned there by the porosity ramp — a geometry
+feature — for every amplitude.
+
+So `argmax φ_b` could never have been a light-sensitive diagnostic, whatever the light
+model does. The step-5 aggregator correctly refused to call this the photoinhibition
+prediction. **Use M(z<0), or a mass-weighted centroid, as the location QoI instead** — the
+top-quartile centroid does move, 164.3 → 156.2 mm, though it moves *up* with amplitude
+rather than down.
+
+The prediction in "Consequences" item 2 above — that the peak moves deeper — is therefore
+not tested by this sweep and needs a different observable to test at all.
+
 ## Step 2 result (measured 2026-07-29)
 
 Cost at `ncells = 500`, `dt = 3e-7` fixed, measured locally: **~1090 s per
