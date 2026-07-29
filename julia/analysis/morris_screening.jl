@@ -243,6 +243,18 @@ end
 # ============================================================================
 # VI. Driver
 # ============================================================================
+"µ* (mean |EE|) and σ per parameter per QoI, from the effects accumulated so far."
+function _mu_sigma_rows(EE, params)
+    rows = Vector{Any}[["qoi","param","block","source","mu_star","sigma","n"]]
+    for qn in QOI_NAMES, (j, p) in enumerate(params)
+        e = EE[qn][j]
+        mustar = isempty(e) ? NaN : mean(abs.(e))
+        sig = length(e) < 2 ? NaN : std(e)
+        push!(rows, [qn, p.name, p.block, p.source, mustar, sig, length(e)])
+    end
+    return rows
+end
+
 function main(; r_traj=8, tsim=0.3, ncells=30, p_levels=6, seed=20260721)
     rng = MersenneTwister(seed)
     m0 = pathogen_model()
@@ -274,16 +286,16 @@ function main(; r_traj=8, tsim=0.3, ncells=30, p_levels=6, seed=20260721)
             end
         end
         @printf("  trajectory %d/%d done (%d runs, %d non-OK)\n", t, r_traj, nrun, nfail)
+        flush(stdout)   # Julia buffers under Slurm redirection; without this the log
+                        # stays empty for hours and progress is unreadable.
+        # Trajectories are independent, so effects from the completed ones are a
+        # valid — if noisier — screen on their own. Written to a SEPARATE file:
+        # mu_sigma.csv must keep the last COMPLETE run rather than be replaced by
+        # a truncated one. Same reasoning as the Sobol partial writes.
+        writedlm(joinpath(outdir, "mu_sigma_partial.csv"), _mu_sigma_rows(EE, params), ',')
     end
 
-    # µ* (mean |EE|) and σ per parameter per QoI
-    rows = Vector{Any}[["qoi","param","block","source","mu_star","sigma","n"]]
-    for qn in QOI_NAMES, (j, p) in enumerate(params)
-        e = EE[qn][j]
-        mustar = isempty(e) ? NaN : mean(abs.(e))
-        sig = length(e) < 2 ? NaN : std(e)
-        push!(rows, [qn, p.name, p.block, p.source, mustar, sig, length(e)])
-    end
+    rows = _mu_sigma_rows(EE, params)
     writedlm(joinpath(outdir, "mu_sigma.csv"), rows, ',')
     println("\nwrote ", joinpath(outdir, "mu_sigma.csv"), "  (", nrun, " runs, ", nfail, " non-OK)")
 
