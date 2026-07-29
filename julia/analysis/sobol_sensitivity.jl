@@ -13,8 +13,11 @@
 # ranges cause filter failure (undefined QoI); they were reported separately by
 # the OAT. Run on the fast proxy so N·(k+2) is workstation-scale.
 #
-# Run: julia --project=julia julia/analysis/sobol_sensitivity.jl [N] [ncells] [tpost]
+# Run: julia --project=julia julia/analysis/sobol_sensitivity.jl [N] [ncells] [tpost] [resume]
 # Writes results/sobol/sobol_indices.csv and prints ranked Sᵢ / S_Tᵢ with CIs.
+# Progress is persisted per design matrix; pass `resume` to reuse what is already
+# in results/sobol/ instead of recomputing it, which lets a run that hit a Slurm
+# wall continue in a fresh job. Resume aborts if the configuration has changed.
 
 using MPCSSF, Printf, DelimitedFiles, Statistics, Random
 include(joinpath(@__DIR__, "log_oat_sensitivity.jl"))   # builders, run_proxy, build_mature, make_inflow, TD, PAT_IN
@@ -56,18 +59,74 @@ function _bootstrap(f, N, rng; B=500)
     return quantile(vals, 0.05), quantile(vals, 0.95)
 end
 
-function main(; N=48, ncells=25, tpost=1.0, nframes=30, tmature=3.0, seed=20260722)
+# ── resume support ────────────────────────────────────────────────────────
+# A cached QoI vector is only valid for the design matrix and model settings
+# that produced it: A and B come from MersenneTwister(seed) and depend on N and
+# k, and the QoI depends on ncells/tpost/nframes/tmature. Resuming across a
+# change in any of these would mix incompatible evaluations into indices that
+# look plausible and are wrong — so the configuration is recorded and checked.
+
+_config(N, ncells, tpost, nframes, tmature, seed) = Any[
+    "N"       N;
+    "k"       length(SPARAMS);
+    "params"  join([p.name for p in SPARAMS], "|");
+    "ncells"  ncells;
+    "tpost"   tpost;
+    "nframes" nframes;
+    "tmature" tmature;
+    "seed"    seed
+]
+
+function _check_config(outdir, cfg)
+    path = joinpath(outdir, "run_config.csv")
+    if !isfile(path)
+        writedlm(path, cfg, ',')
+        return
+    end
+    old = readdlm(path, ',')
+    for r in axes(cfg, 1)
+        key = cfg[r, 1]
+        j = findfirst(==(key), old[:, 1])
+        j === nothing && error("resume: run_config.csv has no field '$key'. " *
+                               "Clear $outdir to start fresh.")
+        string(old[j, 2]) == string(cfg[r, 2]) || error(
+            "resume: '$key' was $(old[j, 2]) in the cached run, now $(cfg[r, 2]). " *
+            "The cached vectors are not valid for this configuration. " *
+            "Clear $outdir to start fresh.")
+    end
+end
+
+function _cached(outdir, name, N)
+    p = joinpath(outdir, name)
+    isfile(p) || return nothing
+    y = vec(readdlm(p, ',', Float64))
+    return length(y) == N ? y : nothing
+end
+
+function main(; N=48, ncells=25, tpost=1.0, nframes=30, tmature=3.0, seed=20260722,
+              resume=false)
     t0 = time()
     rng = MersenneTwister(seed)
     k = length(SPARAMS)
     outdir = joinpath(@__DIR__, "results", "sobol"); isdir(outdir) || mkpath(outdir)
-    @info "Sobol" N k runs=N*(k+2) ncells tpost
+    @info "Sobol" N k runs=N*(k+2) ncells tpost resume
     flush(stdout); flush(stderr)
+    _check_config(outdir, _config(N, ncells, tpost, nframes, tmature, seed))
 
-    m0 = pathogen_model(); ms = build_mature(m0, ncells, tmature)
-    @printf("mature built  %.1f min\n", (time() - t0) / 60); flush(stdout)
+    m0 = pathogen_model()
     A = rand(rng, N, k); B = rand(rng, N, k)
-    ev(row) = eval_qoi(row, ms, m0, ncells, tpost, nframes)
+
+    # The mature state costs minutes to build and is needed only by evaluations
+    # that actually run, so a fully cached resume must not pay for it.
+    ms_ref = Ref{Any}(nothing)
+    function mature()
+        if ms_ref[] === nothing
+            ms_ref[] = build_mature(m0, ncells, tmature)
+            @printf("mature built  %.1f min\n", (time() - t0) / 60); flush(stdout)
+        end
+        return ms_ref[]
+    end
+    ev(row) = eval_qoi(row, mature(), m0, ncells, tpost, nframes)
 
     # Each row is an independent simulation (own filter, own State, only reads
     # `ms`), so the design matrix parallelises across threads. Needed to make a
@@ -75,6 +134,7 @@ function main(; N=48, ncells=25, tpost=1.0, nframes=30, tmature=3.0, seed=202607
     # nclog is atomic because threads increment it concurrently.
     nclog = Threads.Atomic{Int}(0)
     function run_matrix(M)
+        mature()   # force the lazy build here: the threaded loop must not race on it
         y = Vector{Float64}(undef, size(M, 1))
         Threads.@threads for i in 1:size(M, 1)
             yi, fl = ev(@view M[i, :])
@@ -83,22 +143,33 @@ function main(; N=48, ncells=25, tpost=1.0, nframes=30, tmature=3.0, seed=202607
         end
         return y
     end
-    # Each QoI vector is persisted as it completes: a wall-clock kill then leaves
-    # the finished evaluations on disk instead of discarding the whole run.
-    yA = run_matrix(A)
+
+    # Each QoI vector is persisted as it completes, and reused on resume: a
+    # wall-clock kill then costs only the matrix that was in flight.
+    function qoi(M, name)
+        if resume
+            y = _cached(outdir, name, N)
+            if y !== nothing
+                @printf("resume: %s reused, %d runs skipped\n", name, N); flush(stdout)
+                return y
+            end
+        end
+        y = run_matrix(M)
+        writedlm(joinpath(outdir, name), y, ',')
+        return y
+    end
+
+    yA = qoi(A, "y_A.csv")
     @printf("A done (%d clog)  %.1f min\n", nclog[], (time() - t0) / 60); flush(stdout)
-    writedlm(joinpath(outdir, "y_A.csv"), yA, ',')
-    yB = run_matrix(B)
+    yB = qoi(B, "y_B.csv")
     @printf("B done (%d clog cum)  %.1f min\n", nclog[], (time() - t0) / 60); flush(stdout)
-    writedlm(joinpath(outdir, "y_B.csv"), yB, ',')
 
     varY = var(vcat(yA, yB))
     rows = Vector{Any}[["param","S_i","S_i_lo","S_i_hi","S_Ti","S_Ti_lo","S_Ti_hi"]]
     results = Tuple{String,Float64,Float64,Float64,Float64,Float64}[]
     for i in 1:k
         ABi = copy(A); ABi[:, i] = B[:, i]
-        yABi = run_matrix(ABi)
-        writedlm(joinpath(outdir, @sprintf("y_AB%d.csv", i)), yABi, ',')
+        yABi = qoi(ABi, @sprintf("y_AB%d.csv", i))
         Si  = mean(yB .* (yABi .- yA)) / varY
         STi = mean((yA .- yABi) .^ 2) / (2 * varY)
         # bootstrap CIs (resample realizations)
@@ -115,7 +186,10 @@ function main(; N=48, ncells=25, tpost=1.0, nframes=30, tmature=3.0, seed=202607
         writedlm(joinpath(outdir, "sobol_indices_partial.csv"), rows, ',')
     end
     writedlm(joinpath(outdir, "sobol_indices.csv"), rows, ',')
-    @printf("\nVar(Y)=%.4f  total runs=%d  (%d non-OK)\n", varY, N*(k+2), nclog[])
+    # nclog counts only evaluations performed in this session — cached ones are
+    # not re-tallied, so on a resume this is a per-session, not cumulative, count.
+    @printf("\nVar(Y)=%.4f  total runs=%d  (%d non-OK this session)\n",
+            varY, N*(k+2), nclog[])
     println("\n── Ranked by total-effect S_Ti ──")
     for (nm, si, sti) in sort([(r[1], r[2], r[3]) for r in results]; by=x->x[3], rev=true)
         @printf("  S_Ti=%.3f  S_i=%+.3f  interaction=%.3f  %s\n", sti, si, sti - si, nm)
@@ -127,5 +201,6 @@ if abspath(PROGRAM_FILE) == @__FILE__
     N      = length(ARGS) >= 1 ? parse(Int, ARGS[1]) : 48
     ncells = length(ARGS) >= 2 ? parse(Int, ARGS[2]) : 25
     tpost  = length(ARGS) >= 3 ? parse(Float64, ARGS[3]) : 1.0
-    main(; N=N, ncells=ncells, tpost=tpost)
+    resume = "resume" in ARGS
+    main(; N=N, ncells=ncells, tpost=tpost, resume=resume)
 end
