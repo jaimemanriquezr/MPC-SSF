@@ -177,15 +177,27 @@ function qois(r, f)
     o2 = concentration(r, "O2", :flowing)[:, end]
     surf = si === nothing ? 0.0 : matHET[si]
     peni = surf > 0 ? findlast(>(0.01 * surf), matHET) : nothing
-    o2pen_i = findlast(>(0.01 * maximum(o2) + 1e-30), o2)
+    # o2pen is CENSORED whenever the filter stays aerobic to the bottom, which is
+    # the normal case here: measured at ncells=30 the profile only falls to 60% of
+    # its maximum, so the 1% threshold is crossed in 0 of 62 cells and `findlast`
+    # returns the last index for every parameter set. Reported as a depth that
+    # would silently read as "oxygen reaches the bottom" data when it is really
+    # "the metric never resolved". NaN so it cannot be averaged into a ranking.
+    o2max = maximum(o2); o2thr = 0.01 * o2max + 1e-30
+    o2pen_i = findlast(>(o2thr), o2)
+    o2_censored = o2pen_i === nothing || o2pen_i == length(o2)
     attPAT = sum(poro .* concentration(r, "PAT", :matrix)[:, end] .* dz)
     return (; Lmean, Lmin, Mb, zb,
             pen = peni === nothing ? 0.0 : z[peni],
-            o2pen = o2pen_i === nothing ? 0.0 : z[o2pen_i],
+            o2pen = o2_censored ? NaN : z[o2pen_i],
+            # Uncensored companion: the fraction of oxygen consumed across the
+            # domain. Varies continuously whether or not the filter goes anoxic,
+            # so it carries the signal o2pen was meant to and cannot saturate.
+            o2dep = o2max > 0 ? 1 - minimum(o2) / o2max : 0.0,
             maxHET = maximum(matHET), maxPHO = maximum(concentration(r, "PHO", :matrix)[:, end]),
             attPAT, flag = string(r.flag))
 end
-const QOI_NAMES = ["Lmean","Lmin","Mb","zb","pen","o2pen","maxHET","maxPHO","attPAT"]
+const QOI_NAMES = ["Lmean","Lmin","Mb","zb","pen","o2pen","o2dep","maxHET","maxPHO","attPAT"]
 
 # ============================================================================
 # IV. Model evaluation at a unit-cube point
