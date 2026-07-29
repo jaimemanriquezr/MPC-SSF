@@ -57,12 +57,15 @@ function _bootstrap(f, N, rng; B=500)
 end
 
 function main(; N=48, ncells=25, tpost=1.0, nframes=30, tmature=3.0, seed=20260722)
+    t0 = time()
     rng = MersenneTwister(seed)
     k = length(SPARAMS)
     outdir = joinpath(@__DIR__, "results", "sobol"); isdir(outdir) || mkpath(outdir)
     @info "Sobol" N k runs=N*(k+2) ncells tpost
+    flush(stdout); flush(stderr)
 
     m0 = pathogen_model(); ms = build_mature(m0, ncells, tmature)
+    @printf("mature built  %.1f min\n", (time() - t0) / 60); flush(stdout)
     A = rand(rng, N, k); B = rand(rng, N, k)
     ev(row) = eval_qoi(row, ms, m0, ncells, tpost, nframes)
 
@@ -80,8 +83,14 @@ function main(; N=48, ncells=25, tpost=1.0, nframes=30, tmature=3.0, seed=202607
         end
         return y
     end
-    yA = run_matrix(A); @printf("A done (%d clog)\n", nclog[])
-    yB = run_matrix(B); @printf("B done (%d clog cum)\n", nclog[])
+    # Each QoI vector is persisted as it completes: a wall-clock kill then leaves
+    # the finished evaluations on disk instead of discarding the whole run.
+    yA = run_matrix(A)
+    @printf("A done (%d clog)  %.1f min\n", nclog[], (time() - t0) / 60); flush(stdout)
+    writedlm(joinpath(outdir, "y_A.csv"), yA, ',')
+    yB = run_matrix(B)
+    @printf("B done (%d clog cum)  %.1f min\n", nclog[], (time() - t0) / 60); flush(stdout)
+    writedlm(joinpath(outdir, "y_B.csv"), yB, ',')
 
     varY = var(vcat(yA, yB))
     rows = Vector{Any}[["param","S_i","S_i_lo","S_i_hi","S_Ti","S_Ti_lo","S_Ti_hi"]]
@@ -89,6 +98,7 @@ function main(; N=48, ncells=25, tpost=1.0, nframes=30, tmature=3.0, seed=202607
     for i in 1:k
         ABi = copy(A); ABi[:, i] = B[:, i]
         yABi = run_matrix(ABi)
+        writedlm(joinpath(outdir, @sprintf("y_AB%d.csv", i)), yABi, ',')
         Si  = mean(yB .* (yABi .- yA)) / varY
         STi = mean((yA .- yABi) .^ 2) / (2 * varY)
         # bootstrap CIs (resample realizations)
@@ -97,8 +107,12 @@ function main(; N=48, ncells=25, tpost=1.0, nframes=30, tmature=3.0, seed=202607
         stlo, sthi = _bootstrap(idx -> mean((yA[idx] .- yABi[idx]) .^ 2) / (2 * var(vcat(yA[idx], yB[idx]))), N, rb)
         push!(rows, [SPARAMS[i].name, Si, silo, sihi, STi, stlo, sthi])
         push!(results, (SPARAMS[i].name, Si, STi, silo, sihi, stlo))
-        @printf("  %-14s  S_i=%+.3f [%.3f,%.3f]   S_Ti=%.3f [%.3f,%.3f]\n",
-                SPARAMS[i].name, Si, silo, sihi, STi, stlo, sthi)
+        @printf("  %-14s  S_i=%+.3f [%.3f,%.3f]   S_Ti=%.3f [%.3f,%.3f]  %.1f min\n",
+                SPARAMS[i].name, Si, silo, sihi, STi, stlo, sthi, (time() - t0) / 60)
+        flush(stdout)
+        # Partial indices go to their own file: sobol_indices.csv still holds the
+        # last COMPLETE run, and must not be replaced by a truncated one.
+        writedlm(joinpath(outdir, "sobol_indices_partial.csv"), rows, ',')
     end
     writedlm(joinpath(outdir, "sobol_indices.csv"), rows, ',')
     @printf("\nVar(Y)=%.4f  total runs=%d  (%d non-OK)\n", varY, N*(k+2), nclog[])
