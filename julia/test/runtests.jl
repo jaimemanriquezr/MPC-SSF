@@ -592,4 +592,9 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test r.flags_agree
         @test r.match
     end
+
+    # None of the golden suites above can see a change in the cohesion potential:
+    # two start from phi_b = 0, where every form vanishes, and the pathogen pair
+    # run 1e-5 days. These check the wiring the goldens cannot.
+    include(joinpath(@__DIR__, "cohesion_discrimination.jl"))
 end
