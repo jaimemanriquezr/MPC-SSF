@@ -9,9 +9,18 @@
 #   S_Tᵢ = mean((y_A − y_ABi)²) / (2·Var(Y))              (Jansen 1999)
 # Bootstrap CIs by resampling the N realizations (no extra model runs).
 #
-# The clog-driving params (velocity, beta_porosity, zeta_0) are EXCLUDED — their
-# ranges cause filter failure (undefined QoI); they were reported separately by
-# the OAT. Run on the fast proxy so N·(k+2) is workstation-scale.
+# velocity and beta_porosity were previously EXCLUDED because their ranges drove
+# the filter into a clogged state, leaving the QoI undefined. The corrected
+# cohesion potential removed clogging entirely — log_oat_{pulse,startup,flowstep}
+# now report flag = OK for all 27 parameters — so the exclusion no longer applies,
+# and it had become actively misleading: the corrected OAT ranks beta_porosity
+# FIRST in `pulse` and velocity third, so omitting them left the variance-based
+# study unable to address its own top-ranked parameters.
+#
+# zeta_0 remains out: it ranks 0.045 in `pulse`, an order below the rest, and
+# would cost a design column for a near-zero result.
+#
+# Run on the fast proxy so N·(k+2) is workstation-scale.
 #
 # Run: julia --project=julia julia/analysis/sobol_sensitivity.jl [N] [ncells] [tpost] [resume]
 # Writes results/sobol/sobol_indices.csv and prints ranked Sᵢ / S_Tᵢ with CIs.
@@ -25,6 +34,13 @@ include(joinpath(@__DIR__, "log_oat_sensitivity.jl"))   # builders, run_proxy, b
 struct SP; name::String; lo::Float64; hi::Float64; scale::Symbol; apply::Function; end
 _val(p::SP, u) = p.scale === :log ? p.lo * (p.hi / p.lo)^u : p.lo + (p.hi - p.lo) * u
 
+# β directly, NOT the gap. The OAT helper set_beta_gap() takes 1−β, and sampling
+# the gap log-uniformly is a different distribution over β than sampling β
+# uniformly. Sobol indices depend on the input distribution, so reusing the gap
+# helper would quietly make these indices incomparable with the Morris screen,
+# which samples β on [0.95, 0.995] linearly.
+set_beta() = (f, m, v) -> (f, _mdl(m; biofilm_porosity=v))
+
 # retained parameters + ranges (cited from Campos2006 / Schijven2013, as in the OAT)
 const SPARAMS = SP[
     SP("attach_sand",  180.0,  1640.0, :log, set_attach_sand()),                  # Lund b_sand ±3×
@@ -35,6 +51,11 @@ const SPARAMS = SP[
     SP("theta_death",   0.03,   0.12,  :lin, set_theta(["Heterotroph death","Phototroph death"])),  # θ−1
     SP("transport_P",   1.64,   16.4,  :log, set_transport_P()),                  # Lund
     SP("influent_PAT",  0.3,    3.0,   :log, (f,m,v)->(f,m)),                      # multiplier (special)
+    # Restored 2026-07-29 once the cohesion fix removed clogging. Ranges match
+    # morris_screening.jl exactly so the two studies sample the same distribution
+    # and their rankings compare without a reparameterisation argument.
+    SP("velocity",      2.16,   21.6,  :log, set_velocity()),                      # Schijven T1 spread, nom 7.2
+    SP("beta_porosity", 0.95,   0.995, :lin, set_beta()),                          # Diehl2025/Lund, nom 0.99
 ]
 
 # QoI: mean log-removal over the post-disturbance window (mature+pulse)
