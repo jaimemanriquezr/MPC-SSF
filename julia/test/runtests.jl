@@ -366,6 +366,53 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test [r.is_light_dependent for r in m.reactions] == [false, true, false, false, false]
     end
 
+    @testset "phototroph respiration (metabolic split)" begin
+        # Off by default: modelLund() is the original 5-reaction model.
+        m0 = modelLund()
+        @test length(m0.reactions) == 5
+        @test m0.reactions[2].minimum_light_factor == 0.01
+
+        # On: sixth reaction, reversed stoichiometry, dark floor retired.
+        m = modelLund(phototroph_respiration=0.276)
+        @test length(m.reactions) == 6
+        resp = m.reactions[6]
+        @test resp.name == "Phototroph respiration"
+        @test resp.nominal_rate == 0.276
+        @test !resp.is_light_dependent
+        gro = m.reactions[2]
+        @test gro.minimum_light_factor == 0.0
+        for k in ("O2", "IC", "NH4", "HPO4")
+            @test resp.stoichiometric_coefficients[k] ==
+                  -gro.stoichiometric_coefficients[k]
+        end
+        # Dark column: with respiration ON, oxygen is CONSUMED where algae sit;
+        # with it OFF (floor 0) the O2 field is untouched by phototrophs. Seed
+        # PHO + O2 via the influent, kill the light, run briefly, compare total
+        # flowing+enclosed O2.
+        infl = [0.0, 1.0e-2, 0.0, 0.0, 9.10e-3, 6.23e-3, 2.0e-5, 0.0, 0.0]
+        function darkrun(m)
+            f = addgridpoints(SandFilter(), 15)
+            f.light_irradiation = t -> 0.0
+            simulate(State(f, m); inflow_concentrations=infl, simulation_time=2e-3,
+                     time_step=:adaptive, adaptive_initial_dt=1e-8, adaptive_max_dt=3e-6,
+                     n_frames=3, implicit_osmosis=true, quiet=true)
+        end
+        r_on  = darkrun(m)
+        r_off = darkrun(modelLund(phototroph_respiration=0.0))
+        o2 = r -> sum(concentration(r, "O2", :flowing)[:, end]) +
+                  sum(concentration(r, "O2", :enclosed)[:, end])
+        @test r_on.flag == "OK" && r_off.flag == "OK"
+        @test o2(r_on) < o2(r_off)          # respiration consumes O2 in the dark
+        # PHO mass: respiration consumes biomass while the floor model's dark
+        # growth adds it — both effects separate the runs in the same direction.
+        # (IC is not asserted: over this short horizon the advected influent IC
+        # swamps the reaction signal.)
+        pho = r -> sum(concentration(r, "PHO", :matrix)[:, end]) +
+                   sum(concentration(r, "PHO", :enclosed)[:, end]) +
+                   sum(concentration(r, "PHO", :flowing)[:, end])
+        @test pho(r_on) < pho(r_off)        # respiration removes biomass
+    end
+
     @testset "modelPathogen preset" begin
         m = modelPathogen()
         # 9 components (4 particulate, 5 dissolved), 7 reactions (Lund + 2).

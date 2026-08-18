@@ -11,15 +11,26 @@
 # MATLAB DetachmentFunction is the one-arg `@(v) sqrt(v / 7.2)`.
 
 """
-    modelLund() -> Model
+    modelLund(; phototroph_respiration=0.0) -> Model
 
 The Lund/Rosenqvist preset model (port of `presets/modelLund.m`): heterotrophs
 (HET), phototrophs (PHO), particulate organic matter (POM) and a pathogen
 indicator (PAT) as particulates; O2, IC, NH4, HPO4, DOM as liquids; five
 reactions (heterotroph/phototroph growth and death, hydrolysis). Used as the
 shared reference model for MATLAB↔Julia validation.
+
+`phototroph_respiration` > 0 enables the metabolic split (plan
+2026-08-18-phototroph-respiration): a sixth reaction "Phototroph respiration" —
+first-order in PHO, light-INdependent (maintenance respiration runs day and
+night), O2-Monod-limited, stoichiometry the exact reverse of phototroph growth —
+is appended with that nominal rate, and the growth reaction's dark floor
+(minimum_light_factor) drops to 0, since photosynthesis is genuinely zero in
+darkness once respiration carries the dark O2 cost. Literature value:
+kra = 0.0020–0.0210 /h, avg 0.0115 /h = 0.276 /d (Campos2006 Table 3, Brown &
+Barnwell 1987), θ_kra = 1.08. The default 0.0 reproduces the original 5-reaction
+model bit-for-bit (golden suites unchanged).
 """
-function modelLund()
+function modelLund(; phototroph_respiration::Real=0.0)
     density_particle = 1.117e3
     attenuation_particle = 0.094
     dispersivity_particle = 1.20e-2
@@ -81,8 +92,30 @@ function modelLund()
         stoichiometric_coefficients=Dict("POM" => -1.0, "DOM" => 1.0))
 
     components = Component[HET, PHO, POM, PAT, O2, IC, NH4, HPO4, DOM]
-    reactions  = Reaction[heterotroph_growth, phototroph_growth,
-                          heterotroph_death, phototroph_death, hydrolysis]
+    if phototroph_respiration > 0
+        phototroph_growth = Reaction(name="Phototroph growth", is_light_dependent=true,
+            minimum_light_factor=0.0, optimal_light_factor=1.814e-2,
+            nominal_rate=5.50, temperature_correction_factor=1.047,
+            order=Dict("PHO" => 1.0),
+            half_saturation_constants=Dict("IC" => 2.00e-5, "NH4" => 1.20e-2, "HPO4" => 1.68e-4),
+            stoichiometric_coefficients=Dict("PHO" => 1.0, "O2" => 0.9301, "IC" => -0.3600,
+                                             "NH4" => -0.0600, "HPO4" => -0.0100))
+        # Maintenance respiration: reverse of the growth stoichiometry, so the
+        # pair is elementally consistent by construction. O2 Monod (Reichert
+        # half-sat) shuts it off as the water goes anoxic.
+        phototroph_respiration_rx = Reaction(name="Phototroph respiration",
+            nominal_rate=float(phototroph_respiration), temperature_correction_factor=1.08,
+            order=Dict("PHO" => 1.0),
+            half_saturation_constants=Dict("O2" => 3.00e-3),
+            stoichiometric_coefficients=Dict("PHO" => -1.0, "O2" => -0.9301, "IC" => 0.3600,
+                                             "NH4" => 0.0600, "HPO4" => 0.0100))
+        reactions = Reaction[heterotroph_growth, phototroph_growth,
+                             heterotroph_death, phototroph_death, hydrolysis,
+                             phototroph_respiration_rx]
+    else
+        reactions = Reaction[heterotroph_growth, phototroph_growth,
+                             heterotroph_death, phototroph_death, hydrolysis]
+    end
 
     cohesion = CahnHilliardModel(kappa=1.00e-6, zeta_0=1.00e6, zeta_1=1/100)
 

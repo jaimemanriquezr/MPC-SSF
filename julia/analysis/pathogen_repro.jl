@@ -45,8 +45,8 @@ _remake(r::Reaction; kw...) = Reaction(; name=r.name, (; nominal_rate=r.nominal_
 # stoichiometric matrix. Rates θ: growth 1.047, inactivation/bacterivory 1.08.
 function pathogen_model(; growth_mult=1.0, inact_mult=1.0, bact_mult=1.0,
                         growth_rate=0.2, inact_rate=0.02, bact_rate=8.0, kpred=2e-3,
-                        water_factor=1e-3, sand_pathogen=0.0)
-    m = modelLund()
+                        water_factor=1e-3, sand_pathogen=0.0, phototroph_respiration=0.0)
+    m = modelLund(; phototroph_respiration)
     comps = Component[c isa Particle && c.name == "PAT" ?
                       _remake(c; transport_rate=40*c.transport_rate, sand_attachment_factor=sand_pathogen) : c
                       for c in m.components]
