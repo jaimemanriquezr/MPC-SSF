@@ -51,11 +51,11 @@ function modelLund(; phototroph_respiration::Real=0.0)
     density_liquid = 0.998e3
     dispersivity_liquid = 1.20e-2
 
-    O2   = Liquid(name="O2",   density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e1)
-    IC   = Liquid(name="IC",   density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e1)
-    NH4  = Liquid(name="NH4",  density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e1)
-    HPO4 = Liquid(name="HPO4", density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e1)
-    DOM  = Liquid(name="DOM",  density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e1)
+    O2   = Liquid(name="O2",   density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e2)
+    IC   = Liquid(name="IC",   density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e2)
+    NH4  = Liquid(name="NH4",  density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e2)
+    HPO4 = Liquid(name="HPO4", density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=6.00e2)
+    DOM  = Liquid(name="DOM",  density=density_liquid, dispersivity=dispersivity_liquid, transport_rate=3.00e2)
 
     heterotroph_growth = Reaction(name="Heterotroph growth", is_light_dependent=false,
         nominal_rate=1.81e-2, temperature_correction_factor=1.047,
