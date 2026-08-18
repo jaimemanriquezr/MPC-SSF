@@ -19,7 +19,7 @@ decisions applied. Plus the PHO bloom study (`analysis/phoBloomStudy.m`).
 | Cohesion | κ = 1e-6, ζ₀ = **1e2** (overrides Lund 1e6), ζ₁ = 1e-2 | |
 | Detachment | 1.4e-5·√(\|v\|/18) | q̂ = 18 m/d hardcoded |
 | β (biofilm porosity) | 0.99 | τ (osmosis) = 1e-7 |
-| Liquid transfer rates | **60 /d all liquids** | kept at the Julia-campaign value for comparability; the published table says 600 (DOM 300) — known open discrepancy |
+| Liquid transfer rates | **60 /d all liquids** | value AT CAMPAIGN TIME, kept for Julia comparability. Fixed to the published 600 (DOM 300) in both presets on 2026-08-18, AFTER the campaign completed — results in this tree predate the fix |
 
 Filter: height 1 m, depth 1 m, sand porosity 0.4, roughness 5e-3, T = 15 °C,
 q_in = 7.2 m/d (**fixed — not a sensitivity parameter**), diel light

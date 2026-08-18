@@ -32,15 +32,15 @@ function model = modelLund(options)
     densityLiquid = 0.998E+03;
     dispersivityLiquid = 1.20E-02;
     O2 =  Liquid(Name="O2", Density=densityLiquid, Dispersivity=dispersivityLiquid, ...
-                            Transport=6.00E+01);
+                            Transport=6.00E+02);
     IC =  Liquid(Name="IC", Density=densityLiquid, Dispersivity=dispersivityLiquid, ...
-                            Transport=6.00E+01);
+                            Transport=6.00E+02);
     NH4 =  Liquid(Name="NH4", Density=densityLiquid, Dispersivity=dispersivityLiquid, ...
-                            Transport=6.00E+01);
+                            Transport=6.00E+02);
     HPO4 =  Liquid(Name="HPO4", Density=densityLiquid, Dispersivity=dispersivityLiquid, ...
-                            Transport=6.00E+01);
+                            Transport=6.00E+02);
     DOM =  Liquid(Name="DOM", Density=densityLiquid, Dispersivity=dispersivityLiquid, ...
-                            Transport=6.00E+01);
+                            Transport=3.00E+02);
 
 
     heterotrophGrowth =  Reaction(Name="Heterotroph growth", IsLightDependent=false, ...
