@@ -1,0 +1,8 @@
+N,256
+k,10
+params,attach_sand|sand_pathogen|dispersivity|temperature|bacterivory|theta_death|transport_P|influent_PAT|velocity|beta_porosity
+ncells,25
+tpost,1.0
+nframes,30
+tmature,3.0
+seed,20260722
