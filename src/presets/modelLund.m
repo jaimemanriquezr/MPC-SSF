@@ -1,6 +1,16 @@
 function model = modelLund(options)
     arguments
             options.WriteFile = false;
+            % > 0 enables the phototroph metabolic split (plan
+            % 2026-08-18-phototroph-respiration): appends a sixth reaction
+            % "Phototroph respiration" (first-order in PHO, light-independent,
+            % O2-Monod-limited, stoichiometry = reverse of phototroph growth)
+            % at this nominal rate, and drops the growth reaction's dark floor
+            % (MinimumLightFactor) to 0. Literature: kra = 0.0020-0.0210 /h,
+            % avg 0.0115 /h = 0.276 /d (Campos2006 Table 3, Brown & Barnwell
+            % 1987), theta_kra = 1.08. Default 0.0 reproduces the original
+            % 5-reaction model exactly (goldens unchanged).
+            options.PhototrophRespiration (1,1) {mustBeNumeric} = 0.0;
     end
 
     densityParticle = 1.117E+03;
@@ -79,6 +89,21 @@ function model = modelLund(options)
                     heterotrophDeath; 
                     phototrophDeath; 
                     hydrolysis];
+    if options.PhototrophRespiration > 0
+        phototrophGrowth.MinimumLightFactor = 0.0;
+        reactionList(2) = phototrophGrowth;
+        % Maintenance respiration: reverse of the growth stoichiometry (pair is
+        % elementally consistent by construction); O2 Monod (Reichert half-sat)
+        % shuts it off as the water goes anoxic.
+        phototrophRespiration = Reaction(Name="Phototroph respiration", ...
+                NominalRate=options.PhototrophRespiration, ...
+                TemperatureCorrectionFactor=1.08, ...
+                Order=dictionary("PHO", 1), ...
+                HalfSaturationConstants=dictionary("O2", 3.00E-03), ...
+                StoichiometricCoefficients=dictionary("PHO", -1.0, ...
+                        "O2", -0.9301, "IC", 0.3600, "NH4", 0.0600, "HPO4", 0.0100));
+        reactionList = [reactionList; phototrophRespiration];
+    end
     model = Model(Components=componentList, ...
                  Kappa=1.00E-06, Zeta0=1.00E+06, Zeta1=1/100, ...
                  DetachmentFunction=@(v) sqrt(v / 7.2), ...
