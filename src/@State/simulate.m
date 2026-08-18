@@ -20,6 +20,14 @@ arguments
     parameters.AdaptiveTimeTolerance (1,1) {mustBeNumeric} = 1e-3;
     parameters.AdaptiveInitialDt (1,1) {mustBeNumeric} = 5e-7;
     parameters.AdaptiveMaxDt (1,1) {mustBeNumeric} = 5e-7;
+
+    % Backward-Euler integration of the osmosis relaxation (port of Julia
+    % simulate.jl `implicit_osmosis`; see implicit-osmosis.md). The relaxation is
+    % (beta*phiB - phiE)/tau = A_osm - kosm*phiW with kosm = (1-beta)/tau, a stiff
+    % linear decay in phiW. Damping the rate by 1/(1+dt*kosm) is exactly backward
+    % Euler on that term, unconditionally stable, and lets the CFL bound drop
+    % 1/tau so dt is no longer osmosis-bound (~20x speedup on modelLund).
+    parameters.ImplicitOsmosis (1,1) = false;
 end
 if ~isempty(options)
     for field = string(fieldnames(options)).'
@@ -65,7 +73,9 @@ elseif isa(parameters.InflowConcentrations, "dictionary")
 else
     inflowConcentrations = parameters.InflowConcentrations;
 end
-inflowConcentrations = inflowConcentrations(:).';
+if ~isa(inflowConcentrations, 'function_handle')
+    inflowConcentrations = inflowConcentrations(:).';
+end
 
 %================= I. SAND FILTER PARAMETERS ====================%
 depthCenters = filter.GridPoints.Centers;
@@ -341,12 +351,18 @@ while t < timeStart + simulationTime
     rhsBiofilm = [reactionsMatrix, reactionsEnclosedParticles, reactionsEnclosedLiquids];
     rhsFlowing = [reactionsFlowingParticles, reactionsFlowingLiquids];
     rhsEnclosedWater = (beta*phiBiofilm - phiEnclosed)/tau;
+    kosm = (1 - beta)/tau;
+    if parameters.ImplicitOsmosis
+        rhsEnclosedWaterA = rhsEnclosedWater./(1 + dt*kosm);
+    else
+        rhsEnclosedWaterA = rhsEnclosedWater;
+    end
 
     %=================== IV. SOLVER A: compute biofilm velocity ======================%
     rhsBiofilmVolume = sum(reactionsMatrix,2)/densityP ...
                         + sum(reactionsEnclosedParticles,2)/densityP ...
                         + sum(reactionsEnclosedLiquids,2)/densityL ...
-                        + rhsEnclosedWater;
+                        + rhsEnclosedWaterA;
     rhsBiofilmVolume = rhsBiofilmVolume(1:n0);
 
     u = phiBiofilm(1:n0);
@@ -408,7 +424,8 @@ while t < timeStart + simulationTime
                2*vfmax*alphaL*(1 + 1/(1 - maxPhib))];
         w_b = [max(det_vf), ...
                max(attachmentRates)*max(attachmentEnclosedFactor) + max(transportParticleRates)/beta, ...
-               max(max(transportLiquidRates)/beta, 1/tau), ...
+               max([max(transportLiquidRates)/beta, ...
+                    ~parameters.ImplicitOsmosis/tau]), ...
                max(attachmentRates)*max(attachmentFlowingFactor) + max(transportParticleRates)/beta*phie_f_max, ...
                max(transportLiquidRates)/beta*phie_f_max];
         w_s = [max(ws_t0, abs(sigmaParticles(3,5))*muRates(5)*max(Xi_b)), ...
@@ -467,7 +484,12 @@ while t < timeStart + simulationTime
     %======================= VI. MAIN: update cell values =================================%
     globalBiofilm = globalBiofilm + (dt/dz)*(fluxBiofilmIn - fluxBiofilmOut)./porosityCenters + dt*rhsBiofilm;
     globalFlowing = globalFlowing + (dt/dz)*(fluxFlowingIn - fluxFlowingOut)./porosityCenters + dt*rhsFlowing;
-    phiW = phiW + (dt/dz)*(fluxWaterIn - fluxWaterOut)./porosityCenters + dt*rhsEnclosedWater;
+    if parameters.ImplicitOsmosis
+        rhsEnclosedWaterB = rhsEnclosedWater./(1 + dt*kosm);
+    else
+        rhsEnclosedWaterB = rhsEnclosedWater;
+    end
+    phiW = phiW + (dt/dz)*(fluxWaterIn - fluxWaterOut)./porosityCenters + dt*rhsEnclosedWaterB;
 
     %========== CHECK IF CONCENTRATIONS ARE NEGATIVE ============%
     problemCellBiofilm = mod(find(globalBiofilm(:) < 0 | isnan(globalBiofilm(:))), size(globalBiofilm, 1));
