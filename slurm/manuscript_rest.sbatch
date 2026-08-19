@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH -A lu2026-2-100
 #SBATCH -p lu48
 #SBATCH -J msRest
