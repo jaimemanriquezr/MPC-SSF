@@ -101,3 +101,24 @@ QoIs: max O₂ anywhere over the run ÷ influent O₂ (supersaturation ratio), o
 (final), min O₂ (final), phototroph biofilm mass ∫(matrix+enclosed)dz, peak φ_b;
 per-run final profiles (z, O₂ flowing, O₂ enclosed, PHO biofilm, φ_b) in
 `results/pho_bloom/profiles_*.csv`, summary in `summary.csv`.
+
+
+## Manuscript-experiment suite (`analysis/manuscriptExperiments.m`, 2026-08-19)
+
+Redo of the 10 article experiments + X1 (O2 day/night profiles) on the corrected model
+(PG-excess respiration 0.55/d, transfer 600/300). Protocols follow the legacy HEAD
+scripts; full table in `.claude/plans/` (manuscript-driver plan). Deviations from the
+campaign setup above:
+
+| item | value | why |
+|---|---|---|
+| kappa | **1e-7** (not the preset 1e-6) | article Table 2 value; preset value is CH-stiff at fine grids |
+| detachment, biofilm family (E1–E4) | 0.14·sqrt(v/18) | legacy srun_biofilm.m:13 |
+| detachment, pathogen family (E5/E6/E10) | 1.4e-5·sqrt(v/18) | legacy srun_pathogen.m (the two families deliberately differ) |
+| respiration NH4/HPO4 Monods | K = 1e-6 / 1e-10 | depletion protection: without them the bottom-bed enclosed NH4 crosses zero (~day 5 at 100 cells); far below ambient, bind only near exhaustion |
+| grids | 100 cells local, 500 cells cosmos (jobs 3524225/3524226, account lu2026-2-100) | cosmos sbatch needs `#!/bin/bash -l` |
+| nominal T | 15 C; seasons 19/3 C | Table 2 (288 K); text's "20 C" not used |
+
+Known HEAD-vs-manuscript-text discrepancies carried (per Jaime 2026-08-19): covered = 1%
+(text: 0.1%), scrape depths 0/5/15/25/50 (text: 0/4/8/12), BigPulse = 100x (text: 2x),
+inactivation/bacterivory "Experiments 2/3" absent from legacy code (hook kept in E6).
