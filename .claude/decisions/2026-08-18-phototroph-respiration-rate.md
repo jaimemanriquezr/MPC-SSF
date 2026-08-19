@@ -76,3 +76,27 @@ light normalization guarded when no optimal_light_factor exists (both ports).
 Verified: Julia suite 262 pass (incl. new dark-switch tests, goldens untouched);
 MATLAB testRespiration.m passes; tiny-model anchor dark AND bright identical across
 ports to 10 significant digits. Study: results/pho_bloom_wolf (Respiration=0.55).
+
+
+## Amendment 2026-08-19 (2) — full r6 with the polyglucose pool
+
+Jaime overruled the PG-free collapse ("It is supposed to consume NH4 and produce PHO —
+implement PG"). Both ports now implement the FULL Wolf2007 r6 when
+`phototroph_respiration > 0` (plan `2026-08-19-polyglucose-pool.md`):
+
+- New particulate **PG** (CH2O: COD 1.0667, C 0.4, no N/P), 5th particle, transport-
+  identical to PHO. Photosynthesis stores f = `pg_fraction` (default 0.2) per unit PHO,
+  with O2 +1.0667f / IC -0.4f added to the growth row.
+- r6 per unit PG consumed, yield Y = `pg_yield` (default **0.63, ASSUMED** — Wolf2007
+  Table VI does not pin Y_PH/PG; ASM heterotroph yield used; candidate for calibration):
+  PG -1, **PHO +Y**, O2 -(1.0667-0.9301Y), IC +(0.4-0.36Y), **NH4 -0.06Y**, HPO4 -0.01Y.
+  COD and carbon close by construction. Rate unchanged (0.55/d, first-order in PHO,
+  dark-only), plus Wolf's quotient Monod PG/(K*PHO+PG) with K_S,PH,PG = 0.005.
+- Framework fixes that fell out: MATLAB `lookupQuotients` now handles reactions mixing
+  plain and quotient half-saturations (the old code assumed quotient-only dicts).
+
+Verified: Julia 265 tests pass (goldens untouched; PG charges in light, drains in dark);
+MATLAB testRespiration.m (r6+PG) passes; cross-port anchor on the charge/discharge run
+identical to 10 significant digits (pg_mid, pg_end, o2_end). Study:
+`results/pho_bloom_r6full`. The PG-free collapse remains documented above as the netted
+form; it is no longer what runs.

@@ -30,7 +30,7 @@ kra = 0.0020–0.0210 /h, avg 0.0115 /h = 0.276 /d (Campos2006 Table 3, Brown &
 Barnwell 1987), θ_kra = 1.08. The default 0.0 reproduces the original 5-reaction
 model bit-for-bit (golden suites unchanged).
 """
-function modelLund(; phototroph_respiration::Real=0.0)
+function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2, pg_yield::Real=0.63)
     density_particle = 1.117e3
     attenuation_particle = 0.094
     dispersivity_particle = 1.20e-2
@@ -93,27 +93,47 @@ function modelLund(; phototroph_respiration::Real=0.0)
 
     components = Component[HET, PHO, POM, PAT, O2, IC, NH4, HPO4, DOM]
     if phototroph_respiration > 0
+        # Internally stored polyglucose (Wolf2007 PHOBIA): CH2O, COD 32/30,
+        # carbon 0.4 kg C/kg, no N/P. Transport-identical to PHO (intracellular).
+        # Appended as the 5th particle so Lund-structure indices survive.
+        PG = Particle(name="PG", density=density_particle, dispersivity=dispersivity_particle,
+                      transport_rate=5.47, attachment_sand=5.47e2, attachment_matrix=5.47e2,
+                      attenuation=attenuation_particle)
+        components = Component[HET, PHO, POM, PAT, PG, O2, IC, NH4, HPO4, DOM]
+    end
+    if phototroph_respiration > 0
+        # Photosynthesis with internal storage (Wolf2007): per unit PHO built,
+        # the f-fraction goes additionally into PG (CH2O: +1.0667 O2, -0.4 C per
+        # unit PG), coupled to the growth rate. Dark floor retired (respiration
+        # carries the dark metabolism).
+        f = float(pg_fraction)
         phototroph_growth = Reaction(name="Phototroph growth", is_light_dependent=true,
             minimum_light_factor=0.0, optimal_light_factor=1.814e-2,
             nominal_rate=5.50, temperature_correction_factor=1.047,
             order=Dict("PHO" => 1.0),
             half_saturation_constants=Dict("IC" => 2.00e-5, "NH4" => 1.20e-2, "HPO4" => 1.68e-4),
-            stoichiometric_coefficients=Dict("PHO" => 1.0, "O2" => 0.9301, "IC" => -0.3600,
+            stoichiometric_coefficients=Dict("PHO" => 1.0, "PG" => f,
+                                             "O2" => 0.9301 + 1.0667f, "IC" => -(0.3600 + 0.4f),
                                              "NH4" => -0.0600, "HPO4" => -0.0100))
-        # Maintenance respiration: reverse of the growth stoichiometry, so the
-        # pair is elementally consistent by construction. O2 Monod (Reichert
-        # half-sat) shuts it off as the water goes anoxic.
+        # Wolf2007 (PHOBIA) r6, dark respiration = growth on stored polyglucose.
+        # Per unit PG consumed with yield Y = pg_yield (Wolf leaves Y_PH/PG
+        # unpinned; 0.63 = ASM heterotroph yield, ASSUMED): biomass produced,
+        # NH4 consumed, O2 consumed, IC released. Columns are the difference of
+        # the PG-synthesis and biomass rows, so COD/elements balance exactly.
+        # Rate: 0.1*q_max (Tillmann & Rick 2001) = 0.55/d for mu_PHO = 5.5,
+        # first-order in PHO, min-Monod over O2 and the PG/PHO quotient
+        # (K_S,PH,PG = 0.005, Wolf Table VI), dark-only via K_inh/(K_inh + I)
+        # with K_inh = 8e-5 normalized by I_opt = 1.814e-2.
+        Y = float(pg_yield)
         phototroph_respiration_rx = Reaction(name="Phototroph respiration",
             nominal_rate=float(phototroph_respiration), temperature_correction_factor=1.08,
-            # Dark-only per Wolf2007 (PHOBIA) r6: K_inh/(K_inh + I). K_inh = 8e-5
-            # kmol(e)/m2/d normalized by I_opt = 1.814e-2 -> 4.41e-3 in solver
-            # light units. Rate anchor: 0.1*q_max (Tillmann & Rick 2001 via
-            # Wolf2007) = 0.55/d for mu_PHO = 5.5.
             light_inhibition=8e-5/1.814e-2,
             order=Dict("PHO" => 1.0),
-            half_saturation_constants=Dict("O2" => 3.00e-3),
-            stoichiometric_coefficients=Dict("PHO" => -1.0, "O2" => -0.9301, "IC" => 0.3600,
-                                             "NH4" => 0.0600, "HPO4" => 0.0100))
+            half_saturation_constants=Dict("O2" => 3.00e-3, "PG/PHO" => 0.005),
+            stoichiometric_coefficients=Dict("PG" => -1.0, "PHO" => Y,
+                                             "O2" => -(1.0667 - 0.9301Y),
+                                             "IC" => 0.4 - 0.36Y,
+                                             "NH4" => -0.0600Y, "HPO4" => -0.0100Y))
         reactions = Reaction[heterotroph_growth, phototroph_growth,
                              heterotroph_death, phototroph_death, hydrolysis,
                              phototroph_respiration_rx]

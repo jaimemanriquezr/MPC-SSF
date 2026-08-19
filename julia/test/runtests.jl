@@ -366,58 +366,59 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test [r.is_light_dependent for r in m.reactions] == [false, true, false, false, false]
     end
 
-    @testset "phototroph respiration (metabolic split)" begin
-        # Off by default: modelLund() is the original 5-reaction model.
+    @testset "phototroph respiration (Wolf2007 r6, polyglucose pool)" begin
+        # Off by default: modelLund() is the original 5-reaction, 9-component model.
         m0 = modelLund()
         @test length(m0.reactions) == 5
+        @test length(m0.components) == 9
         @test m0.reactions[2].minimum_light_factor == 0.01
 
-        # On: sixth reaction, reversed stoichiometry, dark floor retired.
-        m = modelLund(phototroph_respiration=0.276)
+        # On: PG appended as 5th particle; growth stores the f-fraction; r6
+        # grows PHO on PG in darkness, consuming NH4 and O2.
+        f, Y = 0.2, 0.63
+        m = modelLund(phototroph_respiration=0.55)
+        @test [c.name for c in particles(m)] == ["HET", "PHO", "POM", "PAT", "PG"]
         @test length(m.reactions) == 6
-        resp = m.reactions[6]
-        @test resp.name == "Phototroph respiration"
-        @test resp.nominal_rate == 0.276
-        @test !resp.is_light_dependent
-        @test resp.light_inhibition ≈ 8e-5/1.814e-2   # Wolf2007 K_inh, normalized
-        @test_throws ArgumentError Reaction(name="bad", is_light_dependent=true,
-                                            light_inhibition=1e-3)
         gro = m.reactions[2]
         @test gro.minimum_light_factor == 0.0
-        for k in ("O2", "IC", "NH4", "HPO4")
-            @test resp.stoichiometric_coefficients[k] ==
-                  -gro.stoichiometric_coefficients[k]
-        end
-        # Dark column: with respiration ON, oxygen is CONSUMED where algae sit;
-        # with it OFF (floor 0) the O2 field is untouched by phototrophs. Seed
-        # PHO + O2 via the influent, kill the light, run briefly, compare total
-        # flowing+enclosed O2.
-        infl = [0.0, 1.0e-2, 0.0, 0.0, 9.10e-3, 6.23e-3, 2.0e-5, 0.0, 0.0]
-        function darkrun(m)
-            f = addgridpoints(SandFilter(), 15)
-            f.light_irradiation = t -> 0.0
-            simulate(State(f, m); inflow_concentrations=infl, simulation_time=2e-3,
-                     time_step=:adaptive, adaptive_initial_dt=1e-8, adaptive_max_dt=3e-6,
-                     n_frames=3, implicit_osmosis=true, quiet=true)
-        end
-        r_on  = darkrun(m)
-        r_off = darkrun(modelLund(phototroph_respiration=0.0))
-        o2 = r -> sum(concentration(r, "O2", :flowing)[:, end]) +
-                  sum(concentration(r, "O2", :enclosed)[:, end])
-        @test r_on.flag == "OK" && r_off.flag == "OK"
-        @test o2(r_on) < o2(r_off)          # respiration consumes O2 in the dark
-        # PHO mass: respiration consumes biomass while the floor model's dark
-        # growth adds it — both effects separate the runs in the same direction.
-        # (IC is not asserted: over this short horizon the advected influent IC
-        # swamps the reaction signal.)
-        pho = r -> sum(concentration(r, "PHO", :matrix)[:, end]) +
-                   sum(concentration(r, "PHO", :enclosed)[:, end]) +
-                   sum(concentration(r, "PHO", :flowing)[:, end])
-        @test pho(r_on) < pho(r_off)        # respiration removes biomass
+        @test gro.stoichiometric_coefficients["PG"] ≈ f
+        @test gro.stoichiometric_coefficients["O2"] ≈ 0.9301 + 1.0667f
+        @test gro.stoichiometric_coefficients["IC"] ≈ -(0.36 + 0.4f)
+        resp = m.reactions[6]
+        @test resp.name == "Phototroph respiration"
+        @test resp.light_inhibition ≈ 8e-5/1.814e-2   # Wolf2007 K_inh, normalized
+        @test resp.half_saturation_constants["PG/PHO"] ≈ 0.005
+        @test resp.stoichiometric_coefficients["PG"] == -1.0
+        @test resp.stoichiometric_coefficients["PHO"] ≈ Y          # biomass PRODUCED
+        @test resp.stoichiometric_coefficients["NH4"] ≈ -0.06Y     # ammonia CONSUMED
+        @test resp.stoichiometric_coefficients["O2"] ≈ -(1.0667 - 0.9301Y)
+        @test resp.stoichiometric_coefficients["IC"] ≈ 0.4 - 0.36Y
+        # COD closes: PG COD in = biomass COD out + O2 consumed.
+        @test 1.0667 ≈ Y*0.9301 + abs(resp.stoichiometric_coefficients["O2"])
+        # Carbon closes: PG carbon = biomass carbon + IC released.
+        @test 0.4 ≈ Y*0.36 + resp.stoichiometric_coefficients["IC"]
+        @test_throws ArgumentError Reaction(name="bad", is_light_dependent=true,
+                                            light_inhibition=1e-3)
 
-        # Dark switch (Wolf2007 r6): under bright constant light the inhibition
-        # factor K/(K+I) collapses (K = 4.4e-3 vs I ~ 1), so a respiration-only
-        # model barely touches O2; in darkness it consumes it.
+        # Charge/discharge: a light phase builds the PG pool; the following dark
+        # phase drains it (r6 active only in darkness via K/(K+I)).
+        infl = [0.0, 1.0e-2, 0.0, 0.0, 0.0, 9.10e-3, 6.23e-3, 2.0e-5, 0.0, 0.0]
+        tswitch = 1.5e-3
+        f2 = addgridpoints(SandFilter(), 15)
+        f2.light_irradiation = t -> t < tswitch ? 1.0 : 0.0
+        r = simulate(State(f2, m); inflow_concentrations=infl, simulation_time=3e-3,
+                     time_step=:adaptive, adaptive_initial_dt=1e-8, adaptive_max_dt=3e-6,
+                     n_frames=7, implicit_osmosis=true, quiet=true)
+        @test r.flag == "OK"
+        ts = times(r)
+        pgm = vec(sum(concentration(r, "PG", :matrix) .+ concentration(r, "PG", :enclosed) .+
+                      concentration(r, "PG", :flowing), dims=1))
+        imid = argmin(abs.(ts .- tswitch))
+        @test pgm[imid] > pgm[1]            # light charges the pool
+        @test pgm[end] < pgm[imid]          # darkness drains it
+
+        # Dark switch on the inhibition factor itself (PG-free micro-model):
+        # bright light suppresses an inhibited reaction; darkness leaves it on.
         pho_c = Particle(name="PHO", density=1.117e3, dispersivity=1.2e-2, transport_rate=5.47)
         o2_c  = Liquid(name="O2", density=998.0, dispersivity=1.2e-2, transport_rate=600.0)
         resp_only = Reaction(name="resp", nominal_rate=0.55, order=Dict("PHO"=>1.0),
