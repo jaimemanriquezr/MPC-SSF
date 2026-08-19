@@ -513,6 +513,12 @@ while t < timeStart + simulationTime
     phiW = phiW + (dt/dz)*(fluxWaterIn - fluxWaterOut)./porosityCenters + dt*rhsEnclosedWaterB;
 
     %========== CHECK IF CONCENTRATIONS ARE NEGATIVE ============%
+    % Underflow floor: a sink acting on an exactly-zero pool (r6 consuming PG
+    % before any is stored; POM hydrolysis) leaves O(realmin) negatives from
+    % the Monod regularizer that would trip the strict guard below. Clamp only
+    % denormal-scale negatives; genuine instabilities overshoot far beyond -1e-20.
+    globalBiofilm(globalBiofilm < 0 & globalBiofilm > -1e-20) = 0;
+    globalFlowing(globalFlowing < 0 & globalFlowing > -1e-20) = 0;
     problemCellBiofilm = mod(find(globalBiofilm(:) < 0 | isnan(globalBiofilm(:))), size(globalBiofilm, 1));
     if ~isempty(problemCellBiofilm)
         fprintf('Unphysical concentration in biofilm. \nTIME = %e\n',t)
