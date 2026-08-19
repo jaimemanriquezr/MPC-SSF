@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -A lu2025-7-124
+#SBATCH -A lu2026-2-100
 #SBATCH -p lu48
 #SBATCH -J msRest
 #SBATCH -t 24:00:00

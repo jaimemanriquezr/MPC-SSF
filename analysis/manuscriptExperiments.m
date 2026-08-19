@@ -27,6 +27,10 @@ arguments
     options.PGExcess (1,1) logical = true;
     options.NCells (1,1) {mustBeNumeric} = 100;
     options.MaxDt (1,1) {mustBeNumeric} = 3e-6;
+    % Article value (Table 2) — the presets carry 1e-6, which is CH-unstable at
+    % fine grids (dt 3e-6 blew up at 100 cells, t=5.9 d); the manuscript's 1e-7
+    % is what allowed the legacy article runs at N=500, dt 1e-5.
+    options.Kappa (1,1) {mustBeNumeric} = 1e-7;
     options.Smoke (1,1) logical = false;
     options.OutRoot (1,1) string = "";
 end
@@ -89,8 +93,26 @@ function infl = baseInfluent(pat)
 infl = [2.68e-3, 1.00e-2, 0.0, pat, 9.10e-3, 6.23e-3, 2.00e-5, 0.0, 1.75e-4];
 end
 
-function m = theModel(opts)
+function m = theModel(opts, family)
+% family = "biofilm" (E1-E4: legacy srun_biofilm detachment 0.14*sqrt(v/18))
+% or "pathogen" (E5/E6/E10: legacy srun_pathogen 1.4e-5*sqrt(v/18), the
+% pathogenModel default). The legacy repo deliberately switched detachment
+% between the two run families; without the biofilm value the corrected
+% model clogs the surface cell by day ~6 at fine grids.
 m = pathogenModel(PhototrophRespiration=opts.Respiration, PGExcess=opts.PGExcess);
+if family == "biofilm"
+    m = Model(m.Components, m.Reactions, Kappa=opts.Kappa, ...
+        Zeta0=m.CohesionSubModel.Zeta0, Zeta1=m.CohesionSubModel.Zeta1, ...
+        DetachmentFunction=@(v) 0.14*sqrt(abs(v)/18), WaterDensity=m.WaterDensity, ...
+        BiofilmPorosity=m.BiofilmPorosity, OsmosisRate=m.OsmosisRate);
+    return
+end
+if opts.Kappa ~= m.CohesionSubModel.Kappa
+    m = Model(m.Components, m.Reactions, Kappa=opts.Kappa, ...
+        Zeta0=m.CohesionSubModel.Zeta0, Zeta1=m.CohesionSubModel.Zeta1, ...
+        DetachmentFunction=m.DetachmentFunction, WaterDensity=m.WaterDensity, ...
+        BiofilmPorosity=m.BiofilmPorosity, OsmosisRate=m.OsmosisRate);
+end
 end
 
 function f = theFilter(opts, tempC, light)
@@ -191,7 +213,7 @@ if ~isfolder(outdir), mkdir(outdir); end
 
 nframes = max(round(24*D.long), 12);            % hourly frames
 f = theFilter(opts, 19, lightSummer());
-m = theModel(opts);
+m = theModel(opts, "biofilm");
 r = runSim(State(f, m), D.long, baseInfluent(0.0), nframes, opts);
 centers = f.GridPoints.Centers(:);
 dz = f.GridSize;
@@ -244,7 +266,7 @@ outdir = fullfile(opts.OutRoot, "E1_seasons");
 if isfile(fullfile(outdir, "phib_final_winter.csv")), return, end
 if ~isfolder(outdir), mkdir(outdir); end
 f = theFilter(opts, 3, lightWinter());
-r = runSim(State(f, theModel(opts)), D.long, baseInfluent(0.0), max(round(2*D.long), 6), opts);
+r = runSim(State(f, theModel(opts, "biofilm")), D.long, baseInfluent(0.0), max(round(2*D.long), 6), opts);
 centers = f.GridPoints.Centers(:);
 phiB = biofilmFraction(r);
 writeProfileCsv(outdir, "phib_final_winter.csv", centers, phiB(:, end));
@@ -264,7 +286,7 @@ Ls = lightSummer();
 for v = ["uncovered", "covered"]
     scale = ternary(v == "covered", 0.01, 1.0);
     f = theFilter(opts, 19, @(t) scale*Ls(t));
-    r = runSim(State(f, theModel(opts)), D.covered, baseInfluent(0.0), max(round(2*D.covered), 6), opts);
+    r = runSim(State(f, theModel(opts, "biofilm")), D.covered, baseInfluent(0.0), max(round(2*D.covered), 6), opts);
     phiB = biofilmFraction(r);
     writeProfileCsv(outdir, "phib_final_" + v + ".csv", f.GridPoints.Centers(:), phiB(:, end));
 end
@@ -284,7 +306,7 @@ if opts.Smoke, depths = depths(1:2); end
 massT = [];
 for zs = depths
     st = scrapeState(st0, zs, dz, centers);
-    s = rehome(f, theModel(opts), st, 0.0);
+    s = rehome(f, theModel(opts, "biofilm"), st, 0.0);
     r = runSim(s, D.postScrape, baseInfluent(0.0), max(round(2*D.postScrape), 6), opts);
     tag = sprintf("GP%d", round(zs*100));
     phiB = biofilmFraction(r);
@@ -320,7 +342,7 @@ for v = variants
         case "Clean",        infl = base;                                              cref = NaN;
         case "ConstantFeed", infl = baseInfluent(patNom);                              cref = patNom;
     end
-    s = rehome(f, theModel(opts), st0, D.patStart);
+    s = rehome(f, theModel(opts, "pathogen"), st0, D.patStart);
     r = runSim(s, D.patLen, infl, max(round(144*D.patLen), 12), opts);
     C = r.Frames.Concentrations;
     ts = r.Frames.Time(:);
@@ -363,7 +385,7 @@ depths = [0 15 25 50]/100;                      % fig_pathogens.m:86-92
 if opts.Smoke, depths = depths(1:2); end
 for zs = depths
     st = scrapeState(st0, zs, dz, centers);
-    s = rehome(f, theModel(opts), st, 0.0);
+    s = rehome(f, theModel(opts, "pathogen"), st, 0.0);
     r = runSim(s, D.patLen, baseInfluent(patNom), max(round(24*D.patLen), 12), opts);
     ts = r.Frames.Time(:);
     patOut = r.Frames.Concentrations{"PAT", "Flowing"}{1}(end, :)';

@@ -525,11 +525,12 @@ while t < timeStart + simulationTime
     % denormal-scale negatives; genuine instabilities overshoot far beyond -1e-20.
     globalBiofilm(globalBiofilm < 0 & globalBiofilm > -1e-20) = 0;
     globalFlowing(globalFlowing < 0 & globalFlowing > -1e-20) = 0;
-    problemCellBiofilm = mod(find(globalBiofilm(:) < 0 | isnan(globalBiofilm(:))), size(globalBiofilm, 1));
+    problemCellBiofilm = find(globalBiofilm(:) < 0 | isnan(globalBiofilm(:)));
     if ~isempty(problemCellBiofilm)
-        fprintf('Unphysical concentration in biofilm. \nTIME = %e\n',t)
-        fprintf("CELL = %i\n", problemCellBiofilm(1) - n0)
-        fprintf("HEIGHT = %i\n", depthCenters(problemCellBiofilm(1)));
+        [pRow, pCol] = ind2sub(size(globalBiofilm), problemCellBiofilm(1));
+        fprintf('Unphysical concentration in biofilm. \nTIME = %e\nCELL = %d (z = %g), STATE COLUMN = %d, VALUE = %e\n', ...
+            t, pRow, depthCenters(pRow), pCol, globalBiofilm(pRow, pCol))
+
         results.Flag = "BIOFILM";
         results.SimulationData.error.description = "Concentration in biofilm volume has reached unphysical values.";
         results.SimulationData.error.problem_cells = problemCellBiofilm;
