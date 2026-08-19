@@ -528,6 +528,14 @@ function simulate(state::State;
         rhsEnclWaterB = implicit_osmosis ? rhsEnclWater ./ (1 .+ dt .* kosm) : rhsEnclWater
         phiW = phiW .+ (dt / dz) .* (fWatIn .- fWatOut) ./ porosity_centers .+ dt .* rhsEnclWaterB
 
+        # Underflow floor: a sink acting on an exactly-zero pool (r6 consuming
+        # PG before any is stored; POM hydrolysis) leaves O(realmin) negatives
+        # from the Monod regularizer that would trip the strict guard below.
+        # Clamp only denormal-scale negatives; genuine instabilities overshoot
+        # far beyond -1e-20.
+        @. globalBiofilm = ifelse(-1e-20 < globalBiofilm < 0, 0.0, globalBiofilm)
+        @. globalFlowing = ifelse(-1e-20 < globalFlowing < 0, 0.0, globalFlowing)
+
         # negativity guards
         if any(x -> x < 0 || isnan(x), globalBiofilm)
             results.flag = "BIOFILM"
