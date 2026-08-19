@@ -23,6 +23,12 @@ arguments
     options.NFrames (1,1) {mustBeNumeric} = 60;
     options.MaxDt (1,1) {mustBeNumeric} = 3e-6;
     options.ParamFilter string = string.empty;   % run a subset (smoke tests)
+    options.SkipParams string = string.empty;    % exclude parameters by name
+    % Baseline-model options, forwarded to pathogenModel (defaults reproduce
+    % the 2026-08-18 anchor campaign's published-model baseline).
+    options.Respiration (1,1) {mustBeNumeric} = 0.0;
+    options.PGExcess (1,1) logical = false;
+    options.OutTag (1,1) string = "";            % suffix for the results dir
 end
 
 influent = [2.68e-3, 1.00e-2, 0.0, 5.36e-3, 9.10e-3, 6.23e-3, 2.00e-5, 0.0, 1.75e-4];
@@ -35,9 +41,12 @@ params = campaignParams();
 if ~isempty(options.ParamFilter)
     params = params(ismember([params.name], options.ParamFilter));
 end
+if ~isempty(options.SkipParams)
+    params = params(~ismember([params.name], options.SkipParams));
+end
 
 here = fileparts(mfilename('fullpath'));
-outdir = fullfile(here, "results", "log_oat_" + disturbance);
+outdir = fullfile(here, "results", "log_oat_" + disturbance + options.OutTag);
 if ~isfolder(outdir), mkdir(outdir); end
 
 fprintf("Log-OAT (%s): %d params, tmature=%g tpost=%g ncells=%d\n", ...
@@ -46,7 +55,7 @@ fprintf("Log-OAT (%s): %d params, tmature=%g tpost=%g ncells=%d\n", ...
 % ---- shared mature state (nominal model); startup uses a clean IC ----------
 mature = [];
 if disturbance ~= "startup"
-    mature = buildMature(options.NCells, options.TMature, options.MaxDt, influent);
+    mature = buildMature(options.NCells, options.TMature, options.MaxDt, influent, options.Respiration, options.PGExcess);
 end
 
 % ---- baseline ----------------------------------------------------------------
@@ -98,10 +107,11 @@ function out = ternary(c, a, b)
 if c, out = a; else, out = b; end
 end
 
-function mature = buildMature(ncells, tmature, maxDt, influent)
+function mature = buildMature(ncells, tmature, maxDt, influent, resp, pgx)
 f = SandFilter();
 f = f.addGridPoints(ncells);
-r = simulate(State(f, pathogenModel()), InflowConcentrations=influent, ...
+r = simulate(State(f, pathogenModel(PhototrophRespiration=resp, PGExcess=pgx)), ...
+    InflowConcentrations=influent, ...
     SimulationTime=tmature, TimeStep="adaptive", AdaptiveInitialDt=1e-8, ...
     AdaptiveMaxDt=maxDt, FrameNumber=5, ImplicitOsmosis=true, Quiet=true);
 assert(r.Flag == "OK", "maturation failed: flag=" + r.Flag);
@@ -141,7 +151,7 @@ function [ts, L, flag, tFinal] = runChallenge(mature, p, value, disturbance, ...
 % One run: perturbed filter/model, scenario disturbance, removal curve.
 f = SandFilter();
 f = f.addGridPoints(options.NCells);
-m = pathogenModel();
+m = pathogenModel(PhototrophRespiration=options.Respiration, PGExcess=options.PGExcess);
 patMult = 1.0;
 if ~isempty(p)
     if p.name == "influent_PAT"
