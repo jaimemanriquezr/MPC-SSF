@@ -100,3 +100,26 @@ MATLAB testRespiration.m (r6+PG) passes; cross-port anchor on the charge/dischar
 identical to 10 significant digits (pg_mid, pg_end, o2_end). Study:
 `results/pho_bloom_r6full`. The PG-free collapse remains documented above as the netted
 form; it is no longer what runs.
+
+
+## Amendment 2026-08-19 (3) — PG-in-excess variant is the model of record for the O2 goal
+
+Jaime's spec: assume PG is in excess (NOT tracked) and let respiration's light factor be
+the exact complement `1 − L_TERM` of the growth Steele factor (activates in dark places —
+and, by the same formula, at the photoinhibited surface where growth also idles; flagged
+and accepted). Implemented as `modelLund(pg_excess=true)` / `PGExcess=true`, new
+`is_light_complement` reaction mode in both solvers (mutually exclusive with the other
+light modes; goldens untouched). Stoichiometry = r6 minus the PG column: PHO +Y,
+O2 −(1.0667−0.9301Y), IC +(0.4−0.36Y), NH4 −0.06Y, HPO4 −0.01Y — biomass produced, NH4
+consumed. Deliberately mass-non-conservative toward the untracked pool. Y stays ASSUMED
+at 0.63 (per Jaime); note Y no longer cancels here — the O2/IC coefficients depend on it.
+
+**Outcome across the four variants (baseline effluent O2, influent 9.10 mg/L):**
+published 10.47 · r6 no-PG 6.36 · r6 full (tracked PG, f=0.2, Y=0.63) 10.22 ·
+**PG-excess 7.44** — goal met: biologically consistent signs AND an effluent deficit;
+supersaturation 1.005, bed min 5.31, biomass net-growing (PHO mass 0.357 vs published
+0.297). r6-full's excess-return is understood: a tracked pool makes the diel loop
+deferred photosynthesis (net O2 = biomass embodied O2); the untracked pool breaks that
+identity by design. Anchors: excess variant identical across ports to 10 digits.
+Data: results/pho_bloom_{r6full,excess}. Remaining open lever if a still-stronger
+bed sink is wanted: heterotroph endogenous respiration (Campos2006 krb avg 1.72/d).

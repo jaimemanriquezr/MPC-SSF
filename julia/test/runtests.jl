@@ -417,6 +417,19 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test pgm[imid] > pgm[1]            # light charges the pool
         @test pgm[end] < pgm[imid]          # darkness drains it
 
+        # PG-in-excess variant: pool untracked (9 components), respiration is
+        # the r6 row minus the PG column and runs as the complement 1 − Steele.
+        mx = modelLund(phototroph_respiration=0.55, pg_excess=true)
+        @test length(mx.components) == 9
+        rx = mx.reactions[6]
+        @test rx.is_light_complement
+        @test !haskey(rx.stoichiometric_coefficients, "PG")
+        @test rx.stoichiometric_coefficients["PHO"] ≈ 0.63
+        @test rx.stoichiometric_coefficients["NH4"] ≈ -0.06 * 0.63
+        @test rx.stoichiometric_coefficients["O2"] ≈ -(1.0667 - 0.9301 * 0.63)
+        @test_throws ArgumentError Reaction(name="bad", light_inhibition=1e-3,
+                                            is_light_complement=true)
+
         # Dark switch on the inhibition factor itself (PG-free micro-model):
         # bright light suppresses an inhibited reaction; darkness leaves it on.
         pho_c = Particle(name="PHO", density=1.117e3, dispersivity=1.2e-2, transport_rate=5.47)
