@@ -33,6 +33,11 @@ struct Reaction
     is_light_dependent::Bool
     minimum_light_factor::Float64
     optimal_light_factor::Float64
+    # Dark-switch (Wolf2007 PHOBIA r6): when > 0, the reaction's light factor is
+    # K/(K + I_local) with I_local the attenuated intensity in optimal-intensity
+    # units — active in darkness, suppressed in light. Mutually exclusive with
+    # is_light_dependent. 0.0 disables (default; goldens unchanged).
+    light_inhibition::Float64
 end
 
 # Normalize a dict whose keys are either Strings or Components into String keys.
@@ -50,12 +55,16 @@ function Reaction(; name::AbstractString="",
                   efficiency_flowing::Real=1.0,
                   is_light_dependent::Bool=false,
                   minimum_light_factor::Real=0.0,
-                  optimal_light_factor::Real=0.0)
+                  optimal_light_factor::Real=0.0,
+                  light_inhibition::Real=0.0)
+    is_light_dependent && light_inhibition > 0 &&
+        throw(ArgumentError("a reaction cannot be both light-dependent and light-inhibited"))
     return Reaction(String(name), nominal_rate, temperature_correction_factor,
                     _namekeys(order), _namekeys(half_saturation_constants),
                     _namekeys(stoichiometric_coefficients),
                     efficiency_biofilm, efficiency_flowing,
-                    is_light_dependent, minimum_light_factor, optimal_light_factor)
+                    is_light_dependent, minimum_light_factor, optimal_light_factor,
+                    light_inhibition)
 end
 
 """

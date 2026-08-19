@@ -105,6 +105,11 @@ function modelLund(; phototroph_respiration::Real=0.0)
         # half-sat) shuts it off as the water goes anoxic.
         phototroph_respiration_rx = Reaction(name="Phototroph respiration",
             nominal_rate=float(phototroph_respiration), temperature_correction_factor=1.08,
+            # Dark-only per Wolf2007 (PHOBIA) r6: K_inh/(K_inh + I). K_inh = 8e-5
+            # kmol(e)/m2/d normalized by I_opt = 1.814e-2 -> 4.41e-3 in solver
+            # light units. Rate anchor: 0.1*q_max (Tillmann & Rick 2001 via
+            # Wolf2007) = 0.55/d for mu_PHO = 5.5.
+            light_inhibition=8e-5/1.814e-2,
             order=Dict("PHO" => 1.0),
             half_saturation_constants=Dict("O2" => 3.00e-3),
             stoichiometric_coefficients=Dict("PHO" => -1.0, "O2" => -0.9301, "IC" => 0.3600,

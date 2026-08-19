@@ -231,6 +231,11 @@ function simulate(state::State;
     attenuation_particles = reshape([p.attenuation for p in P], 1, kP)
     light_dep = [r.is_light_dependent for r in model.reactions]
     min_light = [r.minimum_light_factor for r in model.reactions][light_dep]
+    light_inh = [r.light_inhibition for r in model.reactions]
+    inh_dep = light_inh .> 0
+    # Inhibited-only models have no optimal_light_factor; fall back to 1.0 so the
+    # intensity normalization below stays finite (value unused otherwise).
+    light_optimal = light_optimal > 0 ? light_optimal : 1.0
     kernel = _reaction_kernel(model)
 
     # ---- III. initial conditions ------------------------------------------
@@ -360,6 +365,11 @@ function simulate(state::State;
         lightEffective = lightAttenuated .* exp.(1 .- lightAttenuated)
         if any(light_dep)
             lightFactor[:, light_dep] = _light_factor_floor(lightEffective, min_light)
+        end
+        # Dark-switch reactions (Wolf2007 r6): K/(K + I_local), I_local in
+        # optimal-intensity units (same normalization as lightAttenuated).
+        for j in findall(inh_dep)
+            lightFactor[:, j] .= light_inh[j] ./ (light_inh[j] .+ lightAttenuated)
         end
 
         # --- ecological + exchange reactions ---

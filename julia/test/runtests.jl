@@ -379,6 +379,9 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test resp.name == "Phototroph respiration"
         @test resp.nominal_rate == 0.276
         @test !resp.is_light_dependent
+        @test resp.light_inhibition ≈ 8e-5/1.814e-2   # Wolf2007 K_inh, normalized
+        @test_throws ArgumentError Reaction(name="bad", is_light_dependent=true,
+                                            light_inhibition=1e-3)
         gro = m.reactions[2]
         @test gro.minimum_light_factor == 0.0
         for k in ("O2", "IC", "NH4", "HPO4")
@@ -411,6 +414,33 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
                    sum(concentration(r, "PHO", :enclosed)[:, end]) +
                    sum(concentration(r, "PHO", :flowing)[:, end])
         @test pho(r_on) < pho(r_off)        # respiration removes biomass
+
+        # Dark switch (Wolf2007 r6): under bright constant light the inhibition
+        # factor K/(K+I) collapses (K = 4.4e-3 vs I ~ 1), so a respiration-only
+        # model barely touches O2; in darkness it consumes it.
+        pho_c = Particle(name="PHO", density=1.117e3, dispersivity=1.2e-2, transport_rate=5.47)
+        o2_c  = Liquid(name="O2", density=998.0, dispersivity=1.2e-2, transport_rate=600.0)
+        resp_only = Reaction(name="resp", nominal_rate=0.55, order=Dict("PHO"=>1.0),
+                             light_inhibition=8e-5/1.814e-2,
+                             stoichiometric_coefficients=Dict("PHO"=>-1.0, "O2"=>-0.9301))
+        mR = Model([pho_c, o2_c], [resp_only];
+                   cohesion_submodel=CahnHilliardModel(kappa=1e-6, zeta_0=1e2, zeta_1=1e-2))
+        function lightrun(lum)
+            f = addgridpoints(SandFilter(), 15)
+            f.light_irradiation = t -> lum
+            # Fixed step: the adaptive-CFL bound assumes the Lund reaction
+            # structure and cannot run this 2-component model.
+            simulate(State(f, mR); inflow_concentrations=[1e-2, 9.1e-3],
+                     simulation_time=2e-3, time_step=3e-6, n_frames=3,
+                     implicit_osmosis=true, quiet=true)
+        end
+        o2tot = r -> sum(concentration(r, "O2", :flowing)[:, end]) +
+                     sum(concentration(r, "O2", :enclosed)[:, end])
+        rDark = lightrun(0.0); rBright = lightrun(1.0)
+        @test rDark.flag == "OK" && rBright.flag == "OK"
+        drop_dark = 1 - o2tot(rDark)/o2tot(rBright)
+        @test o2tot(rDark) < o2tot(rBright)          # dark consumes more
+        @test drop_dark > 0                          # sanity on the sign
     end
 
     @testset "modelPathogen preset" begin
