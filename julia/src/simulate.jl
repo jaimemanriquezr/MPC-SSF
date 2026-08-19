@@ -233,6 +233,7 @@ function simulate(state::State;
     min_light = [r.minimum_light_factor for r in model.reactions][light_dep]
     light_inh = [r.light_inhibition for r in model.reactions]
     inh_dep = light_inh .> 0
+    comp_dep = [r.is_light_complement for r in model.reactions]
     # Inhibited-only models have no optimal_light_factor; fall back to 1.0 so the
     # intensity normalization below stays finite (value unused otherwise).
     light_optimal = light_optimal > 0 ? light_optimal : 1.0
@@ -370,6 +371,11 @@ function simulate(state::State;
         # optimal-intensity units (same normalization as lightAttenuated).
         for j in findall(inh_dep)
             lightFactor[:, j] .= light_inh[j] ./ (light_inh[j] .+ lightAttenuated)
+        end
+        # Complement reactions: 1 − Steele(I) (Steele ≤ 1, so the factor stays
+        # in [0, 1]) — on in darkness, zero at optimal light.
+        for j in findall(comp_dep)
+            lightFactor[:, j] .= 1 .- lightEffective
         end
 
         # --- ecological + exchange reactions ---

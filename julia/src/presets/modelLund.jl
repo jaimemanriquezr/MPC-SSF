@@ -30,7 +30,7 @@ kra = 0.0020–0.0210 /h, avg 0.0115 /h = 0.276 /d (Campos2006 Table 3, Brown &
 Barnwell 1987), θ_kra = 1.08. The default 0.0 reproduces the original 5-reaction
 model bit-for-bit (golden suites unchanged).
 """
-function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2, pg_yield::Real=0.63)
+function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2, pg_yield::Real=0.63, pg_excess::Bool=false)
     density_particle = 1.117e3
     attenuation_particle = 0.094
     dispersivity_particle = 1.20e-2
@@ -92,7 +92,7 @@ function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2, pg
         stoichiometric_coefficients=Dict("POM" => -1.0, "DOM" => 1.0))
 
     components = Component[HET, PHO, POM, PAT, O2, IC, NH4, HPO4, DOM]
-    if phototroph_respiration > 0
+    if phototroph_respiration > 0 && !pg_excess
         # Internally stored polyglucose (Wolf2007 PHOBIA): CH2O, COD 32/30,
         # carbon 0.4 kg C/kg, no N/P. Transport-identical to PHO (intracellular).
         # Appended as the 5th particle so Lund-structure indices survive.
@@ -101,7 +101,35 @@ function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2, pg
                       attenuation=attenuation_particle)
         components = Component[HET, PHO, POM, PAT, PG, O2, IC, NH4, HPO4, DOM]
     end
-    if phototroph_respiration > 0
+    if phototroph_respiration > 0 && pg_excess
+        # PG-in-excess variant (Jaime, 2026-08-19): the storage pool is assumed
+        # never limiting and is NOT tracked. Growth keeps the original Lund row
+        # (floor retired); respiration is Wolf2007 r6 WITHOUT the PG column,
+        # normalized per unit (untracked) PG consumed, and its light factor is
+        # the exact complement 1 − Steele(I) of the growth factor: biomass is
+        # built in dark places, consuming NH4 and O2, releasing IC. Deliberately
+        # mass-non-conservative toward the untracked pool.
+        Y = float(pg_yield)
+        phototroph_growth = Reaction(name="Phototroph growth", is_light_dependent=true,
+            minimum_light_factor=0.0, optimal_light_factor=1.814e-2,
+            nominal_rate=5.50, temperature_correction_factor=1.047,
+            order=Dict("PHO" => 1.0),
+            half_saturation_constants=Dict("IC" => 2.00e-5, "NH4" => 1.20e-2, "HPO4" => 1.68e-4),
+            stoichiometric_coefficients=Dict("PHO" => 1.0, "O2" => 0.9301, "IC" => -0.3600,
+                                             "NH4" => -0.0600, "HPO4" => -0.0100))
+        phototroph_respiration_rx = Reaction(name="Phototroph respiration",
+            nominal_rate=float(phototroph_respiration), temperature_correction_factor=1.08,
+            is_light_complement=true,
+            order=Dict("PHO" => 1.0),
+            half_saturation_constants=Dict("O2" => 3.00e-3),
+            stoichiometric_coefficients=Dict("PHO" => Y,
+                                             "O2" => -(1.0667 - 0.9301Y),
+                                             "IC" => 0.4 - 0.36Y,
+                                             "NH4" => -0.0600Y, "HPO4" => -0.0100Y))
+        reactions = Reaction[heterotroph_growth, phototroph_growth,
+                             heterotroph_death, phototroph_death, hydrolysis,
+                             phototroph_respiration_rx]
+    elseif phototroph_respiration > 0
         # Photosynthesis with internal storage (Wolf2007): per unit PHO built,
         # the f-fraction goes additionally into PG (CH2O: +1.0667 O2, -0.4 C per
         # unit PG), coupled to the growth rate. Dark floor retired (respiration

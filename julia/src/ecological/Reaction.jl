@@ -38,6 +38,11 @@ struct Reaction
     # units — active in darkness, suppressed in light. Mutually exclusive with
     # is_light_dependent. 0.0 disables (default; goldens unchanged).
     light_inhibition::Float64
+    # Complement mode: light factor = 1 − Steele(I) — exactly the complement of
+    # the light-dependent growth factor (with its floor at 0), so the reaction
+    # activates where and when photosynthesis idles. Mutually exclusive with
+    # the other two light modes.
+    is_light_complement::Bool
 end
 
 # Normalize a dict whose keys are either Strings or Components into String keys.
@@ -56,15 +61,16 @@ function Reaction(; name::AbstractString="",
                   is_light_dependent::Bool=false,
                   minimum_light_factor::Real=0.0,
                   optimal_light_factor::Real=0.0,
-                  light_inhibition::Real=0.0)
-    is_light_dependent && light_inhibition > 0 &&
-        throw(ArgumentError("a reaction cannot be both light-dependent and light-inhibited"))
+                  light_inhibition::Real=0.0,
+                  is_light_complement::Bool=false)
+    count((is_light_dependent, light_inhibition > 0, is_light_complement)) > 1 &&
+        throw(ArgumentError("light modes (dependent/inhibited/complement) are mutually exclusive"))
     return Reaction(String(name), nominal_rate, temperature_correction_factor,
                     _namekeys(order), _namekeys(half_saturation_constants),
                     _namekeys(stoichiometric_coefficients),
                     efficiency_biofilm, efficiency_flowing,
                     is_light_dependent, minimum_light_factor, optimal_light_factor,
-                    light_inhibition)
+                    light_inhibition, is_light_complement)
 end
 
 """
