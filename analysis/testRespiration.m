@@ -51,6 +51,17 @@ assert(pgm(imid) > pgm(1), "light must charge the PG pool");
 assert(pgm(end) < pgm(imid), "darkness must drain the PG pool");
 fprintf("PG pool: charge %.4g -> %.4g, discharge -> %.4g\n", pgm(1), pgm(imid), pgm(end));
 
+% PG-in-excess variant: pool untracked (9 components), respiration = r6 row
+% minus the PG column, light factor = complement 1 - Steele.
+mx = modelLund(PhototrophRespiration=0.55, PGExcess=true);
+assert(length(mx.Components) == 9 && length(mx.Reactions) == 6);
+rx = mx.Reactions(6);
+assert(rx.IsLightComplement);
+assert(~isKey(rx.StoichiometricCoefficients, "PG"));
+assert(abs(rx.StoichiometricCoefficients("PHO") - 0.63) < 1e-12);
+assert(abs(rx.StoichiometricCoefficients("NH4") + 0.06*0.63) < 1e-12);
+assert(abs(rx.StoichiometricCoefficients("O2") + (1.0667 - 0.9301*0.63)) < 1e-12);
+
 % Dark switch on the inhibition factor itself (PG-free micro-model): bright
 % light suppresses an inhibited reaction; darkness leaves it on.
 phoC = Particle(Name="PHO", Density=1.117e3, Dispersivity=1.2e-2, Transport=5.47);
