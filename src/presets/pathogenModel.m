@@ -27,9 +27,11 @@ arguments
     options.KPred (1,1) {mustBeNumeric} = 2e-3;
     % Forwarded to modelLund (0.0 = off; see modelLund.m for provenance).
     options.PhototrophRespiration (1,1) {mustBeNumeric} = 0.0;
+    options.PGExcess (1,1) logical = false;
 end
 
-lund = modelLund(PhototrophRespiration=options.PhototrophRespiration);
+lund = modelLund(PhototrophRespiration=options.PhototrophRespiration, ...
+                 PGExcess=options.PGExcess);
 components = lund.Components;
 for i = 1:length(components)
     if isa(components(i), "Particle") && components(i).Name == "PAT"

@@ -223,8 +223,9 @@ if isempty(lightOptimal) || lightOptimal <= 0
 end
 lightInhibition = [model.Reactions.LightInhibition];
 inhibitionDependency = lightInhibition > 0;
-if any(inhibitionDependency & [model.Reactions.IsLightDependent])
-    error("a reaction cannot be both light-dependent and light-inhibited");
+complementDependency = [model.Reactions.IsLightComplement];
+if any((inhibitionDependency + [model.Reactions.IsLightDependent] + complementDependency) > 1)
+    error("light modes (dependent/inhibited/complement) are mutually exclusive");
 end
 attenuationParticles = [model.Particles.Attenuation];
 
@@ -333,6 +334,11 @@ while t < timeStart + simulationTime
     for jInh = find(inhibitionDependency)
         K = lightInhibition(jInh);
         lightFactor(:, jInh) = K./(K + lightAttenuated);
+    end
+    % Complement reactions: 1 - Steele(I) (Steele <= 1, factor stays in [0,1])
+    % -- on in darkness, zero at optimal light.
+    for jCmp = find(complementDependency)
+        lightFactor(:, jCmp) = 1 - lightEffective;
     end
 
     % Phase efficiencies scale each reaction per region (defaults 1.0, so this

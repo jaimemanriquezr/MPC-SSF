@@ -16,6 +16,11 @@ classdef Reaction
         % active in darkness, suppressed in light. Mutually exclusive with
         % IsLightDependent. 0.0 disables (default; goldens unchanged).
         LightInhibition double = 0.0
+        % Complement mode: light factor = 1 - Steele(I), the exact complement
+        % of the light-dependent growth factor (floor 0) -- the reaction
+        % activates where photosynthesis idles. Mutually exclusive with the
+        % other two light modes.
+        IsLightComplement logical = false
     end
 
     methods
@@ -33,6 +38,7 @@ classdef Reaction
                 input.MinimumLightFactor double = 0.0;
                 input.OptimalLightFactor double = 0.0;
                 input.LightInhibition double = 0.0;
+                input.IsLightComplement logical = false;
             end
             for field = string(fieldnames(input).')
                 if isa(input.(field), "dictionary") && ~isa(input.(field).keys, "string")

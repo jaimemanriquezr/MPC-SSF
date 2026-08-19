@@ -16,6 +16,11 @@ function model = modelLund(options)
             % Table VI leaves it unpinned).
             options.PGFraction (1,1) {mustBeNumeric} = 0.2;
             options.PGYield (1,1) {mustBeNumeric} = 0.63;
+            % true = PG-in-excess variant: the storage pool is assumed never
+            % limiting and is NOT tracked (no PG component); respiration's
+            % light factor is the complement 1 - Steele(I) of the growth
+            % factor. Deliberately mass-non-conservative toward the pool.
+            options.PGExcess (1,1) logical = false;
     end
 
     densityParticle = 1.117E+03;
@@ -94,7 +99,25 @@ function model = modelLund(options)
                     heterotrophDeath; 
                     phototrophDeath; 
                     hydrolysis];
-    if options.PhototrophRespiration > 0
+    if options.PhototrophRespiration > 0 && options.PGExcess
+        % PG-in-excess variant (Jaime, 2026-08-19): growth keeps the original
+        % Lund row (floor retired); respiration is Wolf2007 r6 WITHOUT the PG
+        % column, light factor = 1 - Steele(I): biomass built in dark places,
+        % consuming NH4 and O2, releasing IC.
+        Y = options.PGYield;
+        phototrophGrowth.MinimumLightFactor = 0.0;
+        reactionList(2) = phototrophGrowth;
+        phototrophRespiration = Reaction(Name="Phototroph respiration", ...
+                NominalRate=options.PhototrophRespiration, ...
+                IsLightComplement=true, ...
+                TemperatureCorrectionFactor=1.08, ...
+                Order=dictionary("PHO", 1), ...
+                HalfSaturationConstants=dictionary("O2", 3.00E-03), ...
+                StoichiometricCoefficients=dictionary( ...
+                        ["PHO", "O2", "IC", "NH4", "HPO4"], ...
+                        [Y, -(1.0667 - 0.9301*Y), 0.4 - 0.36*Y, -0.06*Y, -0.01*Y]));
+        reactionList = [reactionList; phototrophRespiration];
+    elseif options.PhototrophRespiration > 0
         % Wolf2007 (PHOBIA): photosynthesis stores the f-fraction into an
         % internal polyglucose pool PG (CH2O: +1.0667 O2, -0.4 C per unit PG);
         % dark respiration (r6) grows PHO on PG, consuming NH4 and O2. PG is

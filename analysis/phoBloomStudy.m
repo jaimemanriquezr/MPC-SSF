@@ -25,6 +25,7 @@ arguments
     % > 0 enables the phototroph metabolic split (photosynthesis + maintenance
     % respiration; see modelLund.m). Campos2006 kra avg = 0.276 /d.
     options.Respiration (1,1) {mustBeNumeric} = 0.0;
+    options.PGExcess (1,1) logical = false;
     options.OutDirName (1,1) string = "pho_bloom";
 end
 
@@ -61,7 +62,7 @@ for i = 1:length(runs)
     q = runs(i);
     f = SandFilter();
     f = f.addGridPoints(options.NCells);
-    m = pathogenModel(PhototrophRespiration=options.Respiration);
+    m = pathogenModel(PhototrophRespiration=options.Respiration, PGExcess=options.PGExcess);
     rx = m.Reactions;
     for j = 1:length(rx)
         if rx(j).Name == "Phototroph growth", rx(j).NominalRate = q.mu; end
@@ -72,7 +73,7 @@ for i = 1:length(runs)
     end
     m.Reactions = rx;
     infl = influentBase;  infl(2) = q.phoIn;
-    if options.Respiration > 0
+    if options.Respiration > 0 && ~options.PGExcess
         infl = [infl(1:4), 0.0, infl(5:end)];   % PG = 0 in the influent
     end
 
