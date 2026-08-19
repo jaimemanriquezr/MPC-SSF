@@ -9,6 +9,12 @@ function [K, denIdx, numIdx] = lookupQuotients(obj, components)
                             keyComponentsNum(containsQuotient), ...
                             "UniformOutput", false);
 
+    % No quotient half-saturations anywhere: return empty (0 x nRx) so the
+    % [halfSaturationK; quotientK] concatenation in simulate degrades cleanly.
+    if isempty(keyQuotientsSplit)
+        K = nan(0, length(obj));  denIdx = [];  numIdx = [];
+        return
+    end
     keyQuotientsNames = cat(1, keyQuotientsSplit{:});
     [~, numIdx] = ismember(keyQuotientsNames(:, 1), names);
     [~, denIdx] = ismember(keyQuotientsNames(:, 2), names);

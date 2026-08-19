@@ -11,6 +11,11 @@ classdef Reaction
         IsLightDependent logical
         MinimumLightFactor double
         OptimalLightFactor double
+        % Dark-switch (Wolf2007 PHOBIA r6): when > 0, the reaction's light
+        % factor is K/(K + I_local), I_local in optimal-intensity units --
+        % active in darkness, suppressed in light. Mutually exclusive with
+        % IsLightDependent. 0.0 disables (default; goldens unchanged).
+        LightInhibition double = 0.0
     end
 
     methods
@@ -27,6 +32,7 @@ classdef Reaction
                 input.IsLightDependent logical = false
                 input.MinimumLightFactor double = 0.0;
                 input.OptimalLightFactor double = 0.0;
+                input.LightInhibition double = 0.0;
             end
             for field = string(fieldnames(input).')
                 if isa(input.(field), "dictionary") && ~isa(input.(field).keys, "string")

@@ -197,8 +197,13 @@ alphaL = alpha(kP + 1);
 % liquid half-saturation constants for the two growth reactions; absent -> inf
 % so the corresponding 1/(S+K) contribution vanishes.
 halfSatLiquids = model.HalfSaturationConstants(kP+1:kP+kL, :);
-K_HetGrowth = halfSatLiquids(:, 1); K_HetGrowth(isnan(K_HetGrowth)) = inf;
-K_PhoGrowth = halfSatLiquids(:, 2); K_PhoGrowth(isnan(K_PhoGrowth)) = inf;
+% Guarded for non-Lund models with < 2 reactions (constants only feed the
+% adaptive CFL bound; fixed-step runs never read them).
+[K_HetGrowth, K_PhoGrowth] = deal(inf(kL, 1));
+if size(halfSatLiquids, 2) >= 1, K_HetGrowth = halfSatLiquids(:, 1); end
+if size(halfSatLiquids, 2) >= 2, K_PhoGrowth = halfSatLiquids(:, 2); end
+K_HetGrowth(isnan(K_HetGrowth)) = inf;
+K_PhoGrowth(isnan(K_PhoGrowth)) = inf;
 K_CFL = [K_HetGrowth, K_PhoGrowth];
 % hydrolysis quotient (POM/HET) half-saturation constant
 if isempty(quotientK)
@@ -213,6 +218,14 @@ t = timeStart;
 % reaction's rate, which is wrong whenever rates differ between reactions.
 muRates = reshape(model.computeReactionRates(temperature), 1, []);
 lightOptimal = max([model.Reactions.OptimalLightFactor]);
+if isempty(lightOptimal) || lightOptimal <= 0
+    lightOptimal = 1.0;   % inhibited-only models: keep the normalization finite
+end
+lightInhibition = [model.Reactions.LightInhibition];
+inhibitionDependency = lightInhibition > 0;
+if any(inhibitionDependency & [model.Reactions.IsLightDependent])
+    error("a reaction cannot be both light-dependent and light-inhibited");
+end
 attenuationParticles = [model.Particles.Attenuation];
 
 minimumLight = [model.Reactions.MinimumLightFactor];
@@ -312,7 +325,15 @@ while t < timeStart + simulationTime
     % Was the additive (minimumLight + lightEffective + |...|)/2 = max(0, min+eff),
     % which double-counts the baseline at high light. MinimumLightFactor stands in
     % for the global dark_respiration. Equal to the old form when either is 0.
-    lightFactor(:, lightDependency) = max(minimumLight, lightEffective);
+    if any(lightDependency)
+        lightFactor(:, lightDependency) = max(minimumLight, lightEffective);
+    end
+    % Dark-switch reactions (Wolf2007 r6): K/(K + I_local), same normalization
+    % as lightAttenuated.
+    for jInh = find(inhibitionDependency)
+        K = lightInhibition(jInh);
+        lightFactor(:, jInh) = K./(K + lightAttenuated);
+    end
 
     % Phase efficiencies scale each reaction per region (defaults 1.0, so this
     % reduces to the unscaled rates for every pre-existing preset).
