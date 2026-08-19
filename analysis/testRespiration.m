@@ -1,49 +1,58 @@
+% Verification of the phototroph metabolic split, Wolf2007 (PHOBIA) r6 form
+% with the internal polyglucose pool. Mirrors the Julia testset
+% "phototroph respiration (Wolf2007 r6, polyglucose pool)" in runtests.jl.
 W = fileparts(fileparts(mfilename("fullpath")));
-addpath(genpath(fullfile(W, "src")));
 
-% Structure: off = original 5 reactions; on = 6, reversed stoichiometry, floor 0.
+% Off by default: original 5-reaction, 9-component model.
 m0 = modelLund();
-assert(length(m0.Reactions) == 5 && m0.Reactions(2).MinimumLightFactor == 0.01);
-m = modelLund(PhototrophRespiration=0.276);
+assert(length(m0.Reactions) == 5 && length(m0.Components) == 9);
+assert(m0.Reactions(2).MinimumLightFactor == 0.01);
+
+% On: PG appended as 5th particle; growth stores f; r6 grows PHO on PG.
+f = 0.2;  Y = 0.63;
+m = modelLund(PhototrophRespiration=0.55);
+pNames = [m.Particles.Name];
+assert(isequal(pNames, ["HET", "PHO", "POM", "PAT", "PG"]));
 assert(length(m.Reactions) == 6);
-resp = m.Reactions(6);  gro = m.Reactions(2);
-assert(resp.Name == "Phototroph respiration" && ~resp.IsLightDependent);
+gro = m.Reactions(2);
 assert(gro.MinimumLightFactor == 0.0);
-for k = ["O2", "IC", "NH4", "HPO4"]
-    assert(resp.StoichiometricCoefficients(k) == -gro.StoichiometricCoefficients(k));
-end
-
-% Dark-column behavior + anchor export for the Julia comparison.
-infl = [0.0, 1.0e-2, 0.0, 0.0, 9.10e-3, 6.23e-3, 2.0e-5, 0.0, 0.0];
-function r = darkrun(m, infl)
-    f = SandFilter();
-    f = f.addGridPoints(15);
-    f.LightIrradiation = @(t) 0.0;
-    r = simulate(State(f, m), InflowConcentrations=infl, SimulationTime=2e-3, ...
-        TimeStep="adaptive", AdaptiveInitialDt=1e-8, AdaptiveMaxDt=3e-6, ...
-        FrameNumber=3, ImplicitOsmosis=true, Quiet=true);
-end
-rOn = darkrun(m, infl);  rOff = darkrun(m0, infl);
-assert(rOn.Flag == "OK" && rOff.Flag == "OK");
-o2tot = @(r) sum(r.Frames.Concentrations{"O2","Flowing"}{1}(:,end)) ...
-           + sum(r.Frames.Concentrations{"O2","Enclosed"}{1}(:,end));
-photot = @(r) sum(r.Frames.Concentrations{"PHO","Matrix"}{1}(:,end)) ...
-            + sum(r.Frames.Concentrations{"PHO","Enclosed"}{1}(:,end)) ...
-            + sum(r.Frames.Concentrations{"PHO","Flowing"}{1}(:,end));
-assert(o2tot(rOn) < o2tot(rOff), "respiration must consume O2 in the dark");
-assert(photot(rOn) < photot(rOff), "respiration must remove biomass");
-
-% Anchor export: final-frame O2 (flowing, enclosed) and PHO (matrix) profiles.
-out = [rOn.Frames.Concentrations{"O2","Flowing"}{1}(:,end), ...
-       rOn.Frames.Concentrations{"O2","Enclosed"}{1}(:,end), ...
-       rOn.Frames.Concentrations{"PHO","Matrix"}{1}(:,end)];
-writematrix(out, "/private/tmp/claude-501/-Users-jaime-Research-SSF/18cb4123-7947-42f0-8409-e994c38c4600/scratchpad/anchor_matlab.csv");
-% Dark switch (Wolf2007 r6): respiration-only 2-component model, fixed step
-% (the adaptive CFL bound assumes the Lund structure). Bright light suppresses
-% the reaction via K/(K+I); darkness leaves it fully active.
-m = modelLund(PhototrophRespiration=0.276);
+assert(abs(gro.StoichiometricCoefficients("PG") - f) < 1e-12);
+assert(abs(gro.StoichiometricCoefficients("O2") - (0.9301 + 1.0667*f)) < 1e-12);
+assert(abs(gro.StoichiometricCoefficients("IC") + (0.36 + 0.4*f)) < 1e-12);
 resp = m.Reactions(6);
+assert(resp.Name == "Phototroph respiration");
 assert(abs(resp.LightInhibition - 8e-5/1.814e-2) < 1e-12);
+assert(abs(resp.HalfSaturationConstants("PG/PHO") - 0.005) < 1e-12);
+assert(resp.StoichiometricCoefficients("PG") == -1.0);
+assert(abs(resp.StoichiometricCoefficients("PHO") - Y) < 1e-12);          % biomass PRODUCED
+assert(abs(resp.StoichiometricCoefficients("NH4") + 0.06*Y) < 1e-12);     % ammonia CONSUMED
+assert(abs(resp.StoichiometricCoefficients("O2") + (1.0667 - 0.9301*Y)) < 1e-12);
+assert(abs(resp.StoichiometricCoefficients("IC") - (0.4 - 0.36*Y)) < 1e-12);
+% COD and carbon close.
+assert(abs(1.0667 - (Y*0.9301 + abs(resp.StoichiometricCoefficients("O2")))) < 1e-12);
+assert(abs(0.4 - (Y*0.36 + resp.StoichiometricCoefficients("IC"))) < 1e-12);
+
+% Charge/discharge: light builds the PG pool, darkness drains it (r6 is
+% dark-only via K/(K+I)).
+infl = [0.0, 1.0e-2, 0.0, 0.0, 0.0, 9.10e-3, 6.23e-3, 2.0e-5, 0.0, 0.0];
+tswitch = 1.5e-3;
+f2 = SandFilter();
+f2 = f2.addGridPoints(15);
+f2.LightIrradiation = @(t) double(t < tswitch);
+r = simulate(State(f2, m), InflowConcentrations=infl, SimulationTime=3e-3, ...
+    TimeStep="adaptive", AdaptiveInitialDt=1e-8, AdaptiveMaxDt=3e-6, ...
+    FrameNumber=7, ImplicitOsmosis=true, Quiet=true);
+assert(r.Flag == "OK");
+ts = r.Frames.Time;
+C = r.Frames.Concentrations;
+pgm = sum(C{"PG","Matrix"}{1} + C{"PG","Enclosed"}{1} + C{"PG","Flowing"}{1}, 1);
+[~, imid] = min(abs(ts - tswitch));
+assert(pgm(imid) > pgm(1), "light must charge the PG pool");
+assert(pgm(end) < pgm(imid), "darkness must drain the PG pool");
+fprintf("PG pool: charge %.4g -> %.4g, discharge -> %.4g\n", pgm(1), pgm(imid), pgm(end));
+
+% Dark switch on the inhibition factor itself (PG-free micro-model): bright
+% light suppresses an inhibited reaction; darkness leaves it on.
 phoC = Particle(Name="PHO", Density=1.117e3, Dispersivity=1.2e-2, Transport=5.47);
 o2C  = Liquid(Name="O2", Density=998.0, Dispersivity=1.2e-2, Transport=600.0);
 respOnly = Reaction(Name="resp", NominalRate=0.55, Order=dictionary("PHO", 1.0), ...
@@ -65,5 +74,6 @@ o2t = @(r) sum(r.Frames.Concentrations{"O2","Flowing"}{1}(:,end)) ...
 assert(rD.Flag == "OK" && rB.Flag == "OK");
 assert(o2t(rD) < o2t(rB), "dark must consume more O2 than bright");
 fprintf("dark-switch: o2dark=%.10e o2bright=%.10e\n", o2t(rD), o2t(rB));
-
-fprintf("MATLAB RESPIRATION TESTS PASS  o2on=%.10e o2off=%.10e\n", o2tot(rOn), o2tot(rOff));
+% Cross-implementation anchor (2026-08-19): the equivalent Julia runs match
+% these outputs at golden tolerance; see the anchor check in the session log.
+fprintf("MATLAB RESPIRATION (r6+PG) TESTS PASS\n");

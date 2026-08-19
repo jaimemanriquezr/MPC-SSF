@@ -72,6 +72,9 @@ for i = 1:length(runs)
     end
     m.Reactions = rx;
     infl = influentBase;  infl(2) = q.phoIn;
+    if options.Respiration > 0
+        infl = [infl(1:4), 0.0, infl(5:end)];   % PG = 0 in the influent
+    end
 
     r = simulate(State(f, m), InflowConcentrations=infl, SimulationTime=options.TSim, ...
         TimeStep="adaptive", AdaptiveInitialDt=1e-8, AdaptiveMaxDt=options.MaxDt, ...

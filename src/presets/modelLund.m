@@ -11,6 +11,11 @@ function model = modelLund(options)
             % 1987), theta_kra = 1.08. Default 0.0 reproduces the original
             % 5-reaction model exactly (goldens unchanged).
             options.PhototrophRespiration (1,1) {mustBeNumeric} = 0.0;
+            % Wolf2007 storage fraction f (kg COD PG per kg COD PHO built) and
+            % yield Y_PH/PG (ASSUMED 0.63, the ASM heterotroph yield; Wolf2007
+            % Table VI leaves it unpinned).
+            options.PGFraction (1,1) {mustBeNumeric} = 0.2;
+            options.PGYield (1,1) {mustBeNumeric} = 0.63;
     end
 
     densityParticle = 1.117E+03;
@@ -90,22 +95,36 @@ function model = modelLund(options)
                     phototrophDeath; 
                     hydrolysis];
     if options.PhototrophRespiration > 0
+        % Wolf2007 (PHOBIA): photosynthesis stores the f-fraction into an
+        % internal polyglucose pool PG (CH2O: +1.0667 O2, -0.4 C per unit PG);
+        % dark respiration (r6) grows PHO on PG, consuming NH4 and O2. PG is
+        % transport-identical to PHO (intracellular) and appended as the 5th
+        % particle so Lund-structure indices survive. Dark floor retired.
+        f = options.PGFraction;
+        Y = options.PGYield;
+        PG = Particle(Name="PG", Density=densityParticle, Dispersivity=dispersivityParticle, ...
+                      Transport=5.47, AttachmentSand=5.47E+02, AttachmentMatrix=5.47E+02, ...
+                      Attenuation=attenuationParticle);
+        componentList = [componentList(1:4); PG; componentList(5:end)];
         phototrophGrowth.MinimumLightFactor = 0.0;
+        phototrophGrowth.StoichiometricCoefficients = dictionary( ...
+                ["PHO", "PG", "O2", "IC", "NH4", "HPO4"], ...
+                [1.0, f, 0.9301 + 1.0667*f, -(0.3600 + 0.4*f), -0.0600, -0.0100]);
         reactionList(2) = phototrophGrowth;
-        % Maintenance respiration: reverse of the growth stoichiometry (pair is
-        % elementally consistent by construction); O2 Monod (Reichert half-sat)
-        % shuts it off as the water goes anoxic.
-        % Dark-only per Wolf2007 (PHOBIA) r6: K_inh/(K_inh + I), with
-        % K_inh = 8e-5 kmol(e)/m2/d normalized by I_opt = 1.814e-2. Rate
-        % anchor: 0.1*q_max (Tillmann & Rick 2001 via Wolf2007) = 0.55/d.
+        % r6: rate 0.1*q_max = 0.55/d (Tillmann & Rick 2001), first-order in
+        % PHO, min-Monod over O2 and the PG/PHO quotient (K_S,PH,PG = 0.005,
+        % Wolf Table VI), dark-only via K_inh/(K_inh + I), K_inh = 8e-5
+        % normalized by I_opt = 1.814e-2. Columns are the difference of the
+        % PG-synthesis and biomass rows, so COD/elements balance exactly.
         phototrophRespiration = Reaction(Name="Phototroph respiration", ...
                 NominalRate=options.PhototrophRespiration, ...
                 LightInhibition=8e-5/1.814e-2, ...
                 TemperatureCorrectionFactor=1.08, ...
                 Order=dictionary("PHO", 1), ...
-                HalfSaturationConstants=dictionary("O2", 3.00E-03), ...
-                StoichiometricCoefficients=dictionary("PHO", -1.0, ...
-                        "O2", -0.9301, "IC", 0.3600, "NH4", 0.0600, "HPO4", 0.0100));
+                HalfSaturationConstants=dictionary(["O2", "PG/PHO"], [3.00E-03, 0.005]), ...
+                StoichiometricCoefficients=dictionary( ...
+                        ["PG", "PHO", "O2", "IC", "NH4", "HPO4"], ...
+                        [-1.0, Y, -(1.0667 - 0.9301*Y), 0.4 - 0.36*Y, -0.06*Y, -0.01*Y]));
         reactionList = [reactionList; phototrophRespiration];
     end
     model = Model(Components=componentList, ...
