@@ -117,11 +117,15 @@ function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2, pg
             half_saturation_constants=Dict("IC" => 2.00e-5, "NH4" => 1.20e-2, "HPO4" => 1.68e-4),
             stoichiometric_coefficients=Dict("PHO" => 1.0, "O2" => 0.9301, "IC" => -0.3600,
                                              "NH4" => -0.0600, "HPO4" => -0.0100))
+        # NH4/HPO4 half-saturations are DEPLETION PROTECTION (K far below any
+        # ambient level): the reaction consumes both, and without a Monod the
+        # bottom-bed pools cross zero once drained (observed at 100 cells,
+        # t = 4.8 d: enclosed NH4 -> -1e-16 -> BIOFILM guard).
         phototroph_respiration_rx = Reaction(name="Phototroph respiration",
             nominal_rate=float(phototroph_respiration), temperature_correction_factor=1.08,
             is_light_complement=true,
             order=Dict("PHO" => 1.0),
-            half_saturation_constants=Dict("O2" => 3.00e-3),
+            half_saturation_constants=Dict("O2" => 3.00e-3, "NH4" => 1.0e-6, "HPO4" => 1.0e-10),
             stoichiometric_coefficients=Dict("PHO" => Y,
                                              "O2" => -(1.0667 - 0.9301Y),
                                              "IC" => 0.4 - 0.36Y,
@@ -157,7 +161,8 @@ function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2, pg
             nominal_rate=float(phototroph_respiration), temperature_correction_factor=1.08,
             light_inhibition=8e-5/1.814e-2,
             order=Dict("PHO" => 1.0),
-            half_saturation_constants=Dict("O2" => 3.00e-3, "PG/PHO" => 0.005),
+            half_saturation_constants=Dict("O2" => 3.00e-3, "PG/PHO" => 0.005,
+                                           "NH4" => 1.0e-6, "HPO4" => 1.0e-10),
             stoichiometric_coefficients=Dict("PG" => -1.0, "PHO" => Y,
                                              "O2" => -(1.0667 - 0.9301Y),
                                              "IC" => 0.4 - 0.36Y,
