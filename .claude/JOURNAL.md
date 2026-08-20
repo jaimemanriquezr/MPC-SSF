@@ -407,3 +407,25 @@ Also: at N=64 no first-order index resolved. At N=256 `sand_pathogen`'s S_i CI i
   resubmitted MATLAB 3524843/44 + Julia 3524845/46 (acct lu2026-2-100); local 100-cell
   suite + X2 wiped and relaunched. Two old-regime background runs (E10, X2) died from
   the wipe deleting their output dirs mid-run — expected, superseded.
+
+## 2026-08-20 (midday) — kinetic-parameter audit
+
+- Audited Table 2 growth rates + all 8 half-saturation constants against Wolf2007,
+  Campos2006, Reichert2001 (now all in documents/): every value wrong vs its own
+  citation; systematic "row slide" pattern. See decisions/2026-08-20-kinetic-parameter-audit.md.
+- Probes: corrected rates alone change nothing (half-sat-limited); corrected half-sat
+  set probing now (probeHalfSats.m); 2x2 season/respiration probes (probeSeason.m) running.
+- ecomodel.tex temperature formula typo found: theta^(T/293-1) written, theta^(T-293)
+  implemented (codes correct, manuscript wrong).
+
+## 2026-08-20 (evening) — probe chain closed; co-author report written
+
+- Probe chain: PG-excess seasons (winter 3.6x summer, structural), endogenous
+  respiration 2x2 (deficit survives, dark growth gone), combined with corrected
+  half-sats (net O2 producer, 13 mg/L diel swing), field influent 5e-4 from
+  Campos2006b Fig 1(a) p.888 (clean 1.5 mg/L deficit, 0.3 mg/L swing, schmutzdecke
+  back at sand surface). Influent algae in Table B.1 is ~15x field strength — the
+  boundary condition was the other half of the O2 anomaly.
+- Report: reports/kinetics-audit-2026-08.{typ,pdf} — audit tables, probe chain,
+  endogenous-respiration proposal, 5 recommendations. Probe data archived in
+  analysis/probes/data/.
