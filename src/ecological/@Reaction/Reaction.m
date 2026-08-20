@@ -21,6 +21,13 @@ classdef Reaction
         % activates where photosynthesis idles. Mutually exclusive with the
         % other two light modes.
         IsLightComplement logical = false
+        % Temperature response form. "exponential" (default; goldens
+        % unchanged): mu20 * theta^(T - 20). "cardinal": CTMI (Rosso et al.
+        % 1993) with CardinalTemperatures = [Tmin Topt Tmax] (degC), rescaled
+        % so mu(20 degC) = NominalRate exactly -- Table 2 values stay
+        % comparable and the 19-20 degC behavior is preserved by construction.
+        TemperatureResponse string = "exponential"
+        CardinalTemperatures double = [NaN NaN NaN]
     end
 
     methods
@@ -39,6 +46,8 @@ classdef Reaction
                 input.OptimalLightFactor double = 0.0;
                 input.LightInhibition double = 0.0;
                 input.IsLightComplement logical = false;
+                input.TemperatureResponse string = "exponential";
+                input.CardinalTemperatures double = [NaN NaN NaN];
             end
             for field = string(fieldnames(input).')
                 if isa(input.(field), "dictionary") && ~isa(input.(field).keys, "string")
