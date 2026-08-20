@@ -28,10 +28,14 @@ arguments
     % Forwarded to modelLund (0.0 = off; see modelLund.m for provenance).
     options.PhototrophRespiration (1,1) {mustBeNumeric} = 0.0;
     options.PGExcess (1,1) logical = false;
+    options.NormalizedLight (1,1) logical = false;
+    options.RespirationLightK (1,1) {mustBeNumeric} = 1.0;
 end
 
 lund = modelLund(PhototrophRespiration=options.PhototrophRespiration, ...
-                 PGExcess=options.PGExcess);
+                 PGExcess=options.PGExcess, ...
+                 NormalizedLight=options.NormalizedLight, ...
+                 RespirationLightK=options.RespirationLightK);
 components = lund.Components;
 for i = 1:length(components)
     if isa(components(i), "Particle") && components(i).Name == "PAT"

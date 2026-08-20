@@ -21,7 +21,7 @@ assert(abs(gro.StoichiometricCoefficients("O2") - (0.9301 + 1.0667*f)) < 1e-12);
 assert(abs(gro.StoichiometricCoefficients("IC") + (0.36 + 0.4*f)) < 1e-12);
 resp = m.Reactions(6);
 assert(resp.Name == "Phototroph respiration");
-assert(abs(resp.LightInhibition - 8e-5/1.814e-2) < 1e-12);
+assert(abs(resp.LightInhibition - 1.0) < 1e-12);   % Monod light term, K in I_hat units
 assert(abs(resp.HalfSaturationConstants("PG/PHO") - 0.005) < 1e-12);
 assert(resp.StoichiometricCoefficients("PG") == -1.0);
 assert(abs(resp.StoichiometricCoefficients("PHO") - Y) < 1e-12);          % biomass PRODUCED
@@ -56,7 +56,7 @@ fprintf("PG pool: charge %.4g -> %.4g, discharge -> %.4g\n", pgm(1), pgm(imid), 
 mx = modelLund(PhototrophRespiration=0.55, PGExcess=true);
 assert(length(mx.Components) == 9 && length(mx.Reactions) == 6);
 rx = mx.Reactions(6);
-assert(rx.IsLightComplement);
+assert(abs(rx.LightInhibition - 1.0) < 1e-12);   % Monod light term (complement retired)
 assert(~isKey(rx.StoichiometricCoefficients, "PG"));
 assert(abs(rx.StoichiometricCoefficients("PHO") - 0.63) < 1e-12);
 assert(abs(rx.StoichiometricCoefficients("NH4") + 0.06*0.63) < 1e-12);

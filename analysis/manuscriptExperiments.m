@@ -101,7 +101,7 @@ function m = theModel(opts, family)
 % 10-day pathogen window. Both families therefore use the biofilm detachment
 % 0.14*sqrt(v/18); flagged for co-author review (changes PAT matrix-release
 % tails vs the published figures).
-m = pathogenModel(PhototrophRespiration=opts.Respiration, PGExcess=opts.PGExcess);
+m = pathogenModel(PhototrophRespiration=opts.Respiration, PGExcess=opts.PGExcess, NormalizedLight=true);
 if family == "biofilm" || family == "pathogen"
     m = Model(m.Components, m.Reactions, Kappa=opts.Kappa, ...
         Zeta0=m.CohesionSubModel.Zeta0, Zeta1=m.CohesionSubModel.Zeta1, ...
