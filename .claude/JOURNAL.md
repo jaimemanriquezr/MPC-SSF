@@ -6,6 +6,24 @@ and how this relates to `.claude/decisions/`.
 
 ---
 
+## 2026-08-19 (evening) — manuscript-experiment redo pipeline
+
+- Fixed two blockers found by the 100-cell manuscript runs: (1) phototroph
+  respiration (both variants) drained bottom-bed NH4 negative — added
+  depletion-protection Monods (NH4 1e-6, HPO4 1e-10) in both ports, suites
+  green; (2) the negativity guard's diagnostic print crashed on index 0 —
+  now reports cell/z/state-column/value.
+- manuscriptExperiments driver: per-family detachment (biofilm 0.14 vs
+  pathogen 1.4e-5·sqrt(v/18), the legacy srun split), Kappa=1e-7 (Table 2),
+  cosmos account lu2026-2-100 (SSF; lu2025-7-124 is HDG — Jaime).
+- Cosmos: first submission failed (module not found — sbatch needs
+  `#!/bin/bash -l`); resubmitted as 3524225 (E3 summer 90 d, 500 cells) +
+  3524226 (array E1/E2/E4/E5/E6/E10, afterok). Local 100-cell E3 canary
+  running in parallel.
+- sensitivity.tex updated to the v2 campaign numbers (corrected baseline,
+  25 params, beta excluded).
+
+
 ## 2026-07-28 — Record-keeping setup
 
 ### Done
@@ -238,3 +256,154 @@ parameter.
   1%/day: biofilm mass follows a power law t^0.85 and never plateaus, so 0.1%/day is ~850 simulated
   days away.
 - `matlab-claude` has **no upstream**, so `b37e533` and `4ffe5bb` are local only.
+
+## 2026-07-30 — sensitivity infrastructure repaired; Sobol restored to k=10; light sweep answered
+
+Session ran overnight from 2026-07-29. Ten commits on `julia-port`, `e9e9a88..c3682e0`.
+
+### What we accomplished
+
+All items **ran and passed** unless marked otherwise.
+
+- **`e9e9a88` Sobol flush + partial writes.** Job 3427791 ran 14.8 h with a 66-byte log and
+  no output: Julia buffers stdout under Slurm redirection, and `sobol_indices.csv` was
+  written only after the last parameter. Flush after each milestone with elapsed minutes;
+  persist each QoI vector (`y_A`, `y_B`, `y_AB<i>`) as it completes. Partials go to
+  `sobol_indices_partial.csv`, NOT `sobol_indices.csv`, which holds the complete Jul 22
+  N=64 result — decision `.claude/decisions/2026-07-29-sobol-partial-file.md`. Verified with
+  an N=2 run; Jul 22 file restored byte-identical.
+- **`597fd12` Sobol resume.** Reuse persisted vectors when `resume` is passed; mature state
+  built lazily so a full-cache resume costs nothing. Guarded: any change to
+  N/k/params/ncells/tpost/nframes/tmature/seed aborts, because sampling changes make cached
+  evaluations invalid — decision `2026-07-29-sobol-resume-guard.md`. Four checks passed:
+  resume after deleting `y_AB4..8` gives byte-identical `sobol_indices.csv`; full-cache
+  resume performs zero evaluations and zero mature builds; changed `ncells` aborts exit 1
+  leaving results untouched.
+- **`64636a8` light-profile step-5 aggregator** (`light_profile_report.jl`) plus the model
+  and sweep drivers, until then untracked while running on cosmos. Refuses to report a
+  direction from runs with `flag != OK`. Plan step 2 measured at last: **~1090 s per
+  simulated day** at ncells=500, dt=3e-7 (2345 s cold), so cost was never the risk.
+- **`64a2d9a` Sobol restored to k=10.** `velocity` and `beta_porosity` were excluded on a
+  clogging rationale the cohesion fix made obsolete — all 27 parameters now report
+  `flag = OK` in all three scenarios — while post-fix OAT ranks `beta_porosity` **first** in
+  `pulse` (0.566) and `velocity` third (0.515). Jaime approved restoring both; `zeta_0`
+  stays out at 0.045. Corner test: **0 of 20** range-extreme evaluations non-OK. β is
+  sampled directly, not as the gap `1−β`, because log-uniform sampling of the gap is a
+  different distribution over β and would break comparability with Morris. Decision
+  `2026-07-29-sobol-restore-clog-params.md`.
+- **`027f44f` o2pen censored + new o2dep.** Morris gave µ* exactly 0 for every parameter but
+  `velocity`. Measured at ncells=30/pulse/1 day: O2 falls only to 60% of its maximum and
+  0 of 62 cells reach the 1% threshold, so `findlast` returned the domain bottom as a
+  constant. Now NaN when censored, plus `o2dep = 1 − min/max` as the uncensored companion
+  (0.425/0.396/0.500 across the velocity range). Decision `2026-07-29-o2pen-censored.md`.
+  **See the correction below — this diagnosis was incomplete.**
+- **`2962a0c` slurm scripts tracked.** They existed only on cosmos, tracked nowhere, and two
+  copies of `sobol-resume.sbatch` had already diverged unnoticed. Superseded 48-core draft
+  removed; committed copy verified identical to the deployed one. README records the
+  deployment direction and the two scheduling lessons.
+- **`d91fcb6` cohesion discrimination tests.** Suite **216 → 243 passing**, all four golden
+  suites still green. Asserts every preset's potential equals the published dψ/du at its own
+  ζ₁ and differs from the double well at φ=0.01, and pins the stale-closure trap. The defect
+  was wiring, not algebra.
+- **`63047f8` light sweep result.** See below.
+- **`b64273c` Morris flush + partial writes**, same two defects, same separate-file fix.
+  Verified with a 2-trajectory run; Jaime's `mu_sigma.csv` restored md5-identical.
+- **`c3682e0` Morris re-screen job.** 24 trajectories (not 6), 552 runs, `-c 2` because the
+  driver is single-threaded.
+
+### Light–biofilm profile study: answered
+
+Job 3428150, all five amplitudes COMPLETED, `flag = OK`, 4:47–5:40 wall each.
+
+**Jaime's hypothesis is contradicted.** Raising irradiance does not put more biofilm above
+z = 0: supernatant mass falls 31% from its optimum, total mass 26%. There is a genuine
+interior optimum at **A ≈ 0.05**, close to the A ≈ 0.018 predicted for `I_eff` = 1 at the
+supernatant top, and both QoIs are non-monotonic across it — the photoinhibition signature,
+measured.
+
+**But QoI (a), the peak location, is the wrong observable.** `z_peak` is +2.00 mm at every
+amplitude because φ_b nearly doubles across the sand surface (0.0151 → 0.0267 over one
+cell) and then decays monotonically. There is no interior maximum; the argmax is the first
+in-bed cell, pinned by the porosity ramp. So "the peak moves deeper" is **untested, not
+refuted**. Use M(z<0) or a mass-weighted centroid instead. Numbers in
+`.claude/plans/2026-07-29-light-biofilm-profile.md`.
+
+### Corrections to claims made during this session
+
+- **`o2pen` has two failure modes, and the committed fix addresses only one.** The diagnosis
+  above (censoring: threshold never crossed, `findlast` pins to the last cell) was verified
+  at ncells=30/pulse/tsim=1.0. But in the *Morris* regime the threshold **is** crossed
+  inside the domain, and µ* is 0 because `o2pen` returns a **grid-quantised** depth `z[idx]`:
+  unless a perturbation moves the crossing a whole cell (dz = 32.8 mm at ncells=30), every
+  elementary effect is exactly 0. The running re-screen confirms it — `o2pen` comes back
+  **0 NaN, 0 nonzero**, not the all-NaN I predicted. Quantisation is very likely the reason
+  `velocity` was the only non-zero parameter in the Jul 21 file too. `o2dep` is unaffected
+  and returns 21 of 22 non-zero. Quantisation is still unfixed.
+- **The "rank agreement" claim in `reports/sensitivity-status-2026-07-29.typ` used the
+  pre-fix Morris file and will need revising.** At 18/24 trajectories the post-fix Morris
+  `Lmean` order is velocity 10.27 > **sand_pathogen 2.08 > dispersivity 1.85** >
+  attach_sand 1.79, whereas pre-fix it was velocity > dispersivity > sand_pathogen >
+  attach_sand. Ranks 2 and 3 swap, so post-fix Morris and post-fix OAT `startup` no longer
+  agree on the full top four. Provisional until the run finishes.
+
+### Cross-method validation emerging
+
+Morris's σ/µ* flags are being confirmed by Sobol as the indices land:
+
+| parameter | Morris σ/µ* (pre-fix) | Sobol S_i | Sobol S_Ti | reading |
+|---|---|---|---|---|
+| `attach_sand` | 2.22, strongly interacting | −0.012, CI straddles 0 | **0.296**, CI clear of 0 | almost entirely interaction — confirmed |
+| `sand_pathogen` | 1.47, interacting | **0.379**, CI clear of 0 | 0.566 | real first-order plus interaction — confirmed |
+| `dispersivity` | 0.76, near-additive | −0.001 | 0.003 | additive and negligible — consistent |
+
+Also: at N=64 no first-order index resolved. At N=256 `sand_pathogen`'s S_i CI is
+[0.218, 0.534], clear of zero. The larger N is buying what it was meant to buy.
+
+### Plan for next session
+
+1. **Read the two running jobs first** (see in-flight below). `sobolr` needs ~22 h more of
+   its remaining 31 h; `morris` needs ~4.6 h of its remaining 10.3 h. Neither needs
+   intervention — check `tail` of the logs and the `*_partial.csv` files.
+2. **When Morris finishes, revise `reports/sensitivity-status-2026-07-29.typ`**: the rank
+   agreement section, and add the post-fix magnitudes with 24 trajectories.
+3. **Fix `o2pen` grid quantisation** — or retire the metric in favour of `o2dep`. A
+   sub-grid interpolated crossing depth would resolve it; the current integer index cannot.
+4. **Solver-level cohesion golden** — the outstanding piece. Measured: relative difference
+   between the two potentials is 7e-17 from a seeded bump at φ_b ~ 5e-3, only 1e-10 with
+   ζ₀ raised a millionfold, but **10–13% from a mature biofilm at φ_b ~ 0.16**. Cohesion
+   flux scales with mobility u(1−u), so low φ_b is unconditionally blind. Needs a committed
+   mature initial state anchored to MATLAB. **Direct seeding of
+   `global_concentration.matrix` does not work** — the state is not self-consistent and
+   trips the guards immediately; grow it with a pre-run.
+5. **Re-examine the `--exclusive` trade** if Sobol needs to be faster in future. See risks.
+
+### Open questions / risks
+
+- **Sobol parallel efficiency is poor: ~1.2× on 16 threads.** 256 runs × ~52 s serial
+  ≈ 222 min of work took 189 min wall. The node is shared (`--exclusive` was dropped to
+  escape a 21 h queue wait, and Morris then landed on cn169 too), so memory-bandwidth
+  contention is the likely cause. The job still fits its wall, so it was left alone, but
+  **the exclusive/non-exclusive trade is the thing to revisit, not the thread count.**
+- **`3427791` cost 14.8 h for nothing.** Cancelled along with `3428726`; both computed the
+  superseded k=8 design. That loss is exactly what the partial-write fix prevents recurring.
+- **The `slurm` echo line is stale**: `runs=$((N*10))` was hardcoded for k=8, so the k=10
+  job prints 2560 where the truth is 3072. Log-only, cosmetic, unfixed.
+- **ζ₁ mismatch still unresolved**: publication models use 0.005, presets 0.01,
+  `results.tex` tabulates 1e-2.
+- **`Logarithmic_OAT_Sensitivity_SSF_model.pdf`, `implicit-osmosis.md`,
+  `worklog-2026-07-20.{md,html}`, `results/morris/`, and the two `MANIFEST.md` edits plus
+  `zerocell_diag.jl` and `run_export_pathogen.m` are Jaime's uncommitted work** and were
+  deliberately never staged.
+
+## 2026-08-20 (late) — normalized light + Monod respiration; fleet reset
+
+- Diagnosed I_opt units mismatch (absolute Wolf value vs dimensionless curves): whole
+  supernatant photoinhibited, photosynthesis pinned to sand surface. Per Jaime:
+  normalized_light=true (I(t) is already I/I_opt) and respiration light response
+  changed to Monod K/(K+Î), K=1.0. See amendment 2026-08-20b in
+  decisions/2026-08-18-phototroph-respiration-rate.md.
+- Both ports committed/pushed; MPCSSF.jl synced; tests pass (light_inhibition asserts).
+- Consistency reset: cancelled cosmos 3524363/64/3524433/34 (old regime), redeployed,
+  resubmitted MATLAB 3524843/44 + Julia 3524845/46 (acct lu2026-2-100); local 100-cell
+  suite + X2 wiped and relaunched. Two old-regime background runs (E10, X2) died from
+  the wipe deleting their output dirs mid-run — expected, superseded.

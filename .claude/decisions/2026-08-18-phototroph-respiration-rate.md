@@ -140,3 +140,30 @@ inverting/erasing the published light-contrast results. The oxygen correction (E
 effluent 5.4 vs 9.10 mg/L) is unaffected. Options for E1/E2 recorded in
 reports/results-redo-poc-2026-08.typ (tracked-PG variant, capped pool, or
 respiration-off presentation) — co-author decision pending.
+
+## Amendment 2026-08-20b — normalized light convention; respiration light response is Monod
+
+Jaime (2026-08-20): "Set it so that I(t) is already normalized by I_opt" and "Change
+respiration to a Monod term". Trigger: the Steele-vs-depth investigation showed the
+inherited optimum I_opt = 1.814e-2 is Wolf2007's PHOBIA-units absolute value while the
+model's light curves are dimensionless (summer peak 0.8) — noon surface sat at ~44x
+optimal, deep in photoinhibition, which pinned photosynthesis to the sand surface and
+made the supernatant column optically "too bright to grow".
+
+**Decision:**
+1. `normalized_light` / `NormalizedLight` (default false — goldens untouched) sets the
+   growth reaction's optimal light factor to 1.0, i.e. the light curve is read as
+   I/I_opt directly. Enabled in both manuscript drivers.
+2. Respiration's light factor becomes a Monod inhibition term K/(K + Î) with
+   K = `respiration_light_K` / `RespirationLightK` (default 1.0: respiration halves at
+   optimal light; Wolf's near-sharp dark switch is recoverable with K ≈ 4.4e-3).
+   Replaces the 1−Steele complement, which under normalized light would have RAISED
+   respiration at 2x optimal — wrong shape; Monod is monotone dark→1, bright→0.
+   Implementation reuses the existing `light_inhibition` reaction field (solver mode
+   already anchored); complement mode retired from presets but kept in the solver.
+
+**Probe (10 d, 100 cells, summer):** flag OK, schmutzdecke persists by attachment
+(phib 0.53 at the sand surface), genuine supernatant algal layer appears (phib 0.25),
+effluent O2 5.27 mg/L — the O2 correction survives the convention change.
+Commits: julia-port + matlab-claude 2026-08-20; MPCSSF.jl synced. All manuscript
+results regenerated under this regime (local 100c suite + cosmos 3524843-46).
