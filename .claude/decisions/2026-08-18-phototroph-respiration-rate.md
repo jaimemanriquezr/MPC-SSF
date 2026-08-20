@@ -123,3 +123,20 @@ deferred photosynthesis (net O2 = biomass embodied O2); the untracked pool break
 identity by design. Anchors: excess variant identical across ports to 10 digits.
 Data: results/pho_bloom_{r6full,excess}. Remaining open lever if a still-stronger
 bed sink is wanted: heterotroph endogenous respiration (Campos2006 krb avg 1.72/d).
+
+## Amendment 2026-08-20 — detachment promoted to an explored parameter; PG-excess caveat
+
+Jaime (2026-08-20): the biofilm-vs-pathogen detachment discrepancy is not a protocol
+constant to arbitrate — detachment is a simulation parameter worth exploring. Study
+`analysis/detachmentStudy.m` (X2) sweeps the prefactor 1.4e-5…0.5 over 10-day
+constant-feed marker runs from the mature summer state. Context: the 1.5-day OAT
+campaign found `detach_scale` inert; on 10-day horizons it separates clogging from
+washout, so its sensitivity is horizon-dependent.
+
+Separately, the 100-cell manuscript redo surfaced the cost of the PG-in-excess
+assumption: with a never-depleting reserve pool, long darkness ADDS biomass — winter
+phib (0.409) now exceeds summer (0.363) and covered ≈ uncovered (0.342 vs 0.351),
+inverting/erasing the published light-contrast results. The oxygen correction (E3
+effluent 5.4 vs 9.10 mg/L) is unaffected. Options for E1/E2 recorded in
+reports/results-redo-poc-2026-08.typ (tracked-PG variant, capped pool, or
+respiration-off presentation) — co-author decision pending.
