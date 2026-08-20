@@ -54,3 +54,16 @@ arithmetic; under fixed influent, no growth-side parameter (mu, theta, light) ca
 flip it. Only identified fixed-influent lever: route decay-released P into POM
 (hydrolysis-gated) instead of dissolved HPO4 — a structural change. This
 strengthens the adopted seasonal-influent resolution.
+
+## Addendum: the inversion is mostly the respiration term (probeNoResp.m)
+
+Clean pair with endogenous respiration removed (death 0.09 O2-neutral the only
+biological loss): W/S collapses 1.81 -> 1.10 (summer PHO 0.076, winter 0.083).
+Respiration drives the flip via (1) ~75% of the theta-sensitive loss pool and
+(2) its P recycling (+0.01/unit vs death's +0.0037) fueling winter's
+light-independent growth. Residual 1.10 = trap-and-decay on death alone; the
+PG-excess-era inversion (3.6x) had a different cause (dark biomass creation).
+Explicit tension: the term that delivers the O2 deficit (without it effluent
+returns to 9.2-9.4, supersaturated) amplifies the winter inversion under fixed
+influent — deficit and summer-dominance cannot coexist with season-constant
+water. The adopted seasonal influent resolves both simultaneously.
