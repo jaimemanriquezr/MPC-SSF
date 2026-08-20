@@ -114,9 +114,11 @@ campaign setup above:
 |---|---|---|
 | kappa | **1e-7** (not the preset 1e-6) | article Table 2 value; preset value is CH-stiff at fine grids |
 | detachment, biofilm family (E1–E4) | 0.14·sqrt(v/18) | legacy srun_biofilm.m:13 |
-| detachment, pathogen family (E5/E6/E10) | 1.4e-5·sqrt(v/18) | legacy srun_pathogen.m (the two families deliberately differ) |
-| respiration NH4/HPO4 Monods | K = 1e-6 / 1e-10 | depletion protection: without them the bottom-bed enclosed NH4 crosses zero (~day 5 at 100 cells); far below ambient, bind only near exhaustion |
-| grids | 100 cells local, 500 cells cosmos (jobs 3524225/3524226, account lu2026-2-100) | cosmos sbatch needs `#!/bin/bash -l` |
+| detachment, pathogen family (E5/E6/E10) | **0.14·sqrt(v/18)** (unified; legacy srun_pathogen.m had 1.4e-5 — with corrected respiration that value clogs the 10-day window) | deviation from legacy, flagged; prefactor explored separately in X2 (`detachmentStudy.m`, sweep 1.4e-5…0.5) |
+| respiration Monods | O2 K = 3e-3, NH4 K = 1e-6 | NH4 term is depletion protection (bottom-bed enclosed NH4 crosses zero ~day 5 at 100 cells otherwise); phosphorus removed from respiration entirely (Wolf2007 r6 has none, and K=1e-10 cannot protect explicit steps) |
+| light convention | `NormalizedLight=true`: light curve is read as I/I_opt (optimal factor 1.0) | inherited I_opt=1.814e-2 is Wolf's absolute PHOBIA value vs dimensionless curves (peak 0.8) — noon surface sat at ~44x optimal, photoinhibited (decision amendment 2026-08-20b) |
+| respiration light response | Monod K/(K+Î), `RespirationLightK=1.0` | replaces 1−Steele complement (wrong shape under normalized light); Wolf's dark switch ≈ K=4.4e-3 |
+| grids | 100 cells local, 500 cells cosmos (jobs 3524843/44 MATLAB + 3524845/46 Julia, account lu2026-2-100) | cosmos sbatch needs `#!/bin/bash -l` |
 | nominal T | 15 C; seasons 19/3 C | Table 2 (288 K); text's "20 C" not used |
 
 Known HEAD-vs-manuscript-text discrepancies carried (per Jaime 2026-08-19): covered = 1%
