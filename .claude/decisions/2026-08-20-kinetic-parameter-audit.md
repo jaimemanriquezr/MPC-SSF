@@ -63,3 +63,19 @@ Prompted by Jaime's question on inherent algal death in the sources:
   Source-faithful loss structure = death 0.09 (PHO) / ~2.0 (HET) with O2-NEUTRAL
   stoichiometry (biomass -> POM/inerts; our current death rows release O2, matching
   neither source) + endogenous respiration 0.276/1.72 carrying all O2 demand.
+
+## Addendum: temperature-correction fix, resolved form (2026-08-20, late)
+
+Jaime proposed reconciling the manuscript's ratio form theta^(T/T0 - 1) with
+Campos's difference form theta^(T - 20) by rescaling theta_hat = theta^T0.
+Agreed on the algebra with two corrections:
+1. The manuscript's base is T0 = 293 K (T in Kelvin), so the rescaling would be
+   theta^293 (e.g. 1.047^293 ~ 7e5, 1.08^293 ~ 6e9) — valid but unrecognizable
+   against literature values.
+2. Both codes ALREADY implement the difference form theta^(T - 293)
+   (run_biofilm.m:91, computeRate.m:26) with literature thetas — simulations were
+   always Campos-consistent; the bug is manuscript-text-only.
+Resolution: fix the exponent in ecomodel.tex to theta^(T - 293), keep Table 2
+theta values. Independent of the theta VALUE fixes: PHO growth 1.047 -> 1.066
+(Campos theta_kga), HET death 1.066 -> 1.08 (theta_kdb), endogenous k_rb theta
+1.047 -> 1.08 (theta_krb; probe-level error, conservative direction).
