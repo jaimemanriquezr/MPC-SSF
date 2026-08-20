@@ -386,7 +386,7 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test gro.stoichiometric_coefficients["IC"] ≈ -(0.36 + 0.4f)
         resp = m.reactions[6]
         @test resp.name == "Phototroph respiration"
-        @test resp.light_inhibition ≈ 8e-5/1.814e-2   # Wolf2007 K_inh, normalized
+        @test resp.light_inhibition ≈ 1.0   # Monod light term, K in normalized-Î units
         @test resp.half_saturation_constants["PG/PHO"] ≈ 0.005
         @test resp.stoichiometric_coefficients["PG"] == -1.0
         @test resp.stoichiometric_coefficients["PHO"] ≈ Y          # biomass PRODUCED
@@ -422,7 +422,7 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         mx = modelLund(phototroph_respiration=0.55, pg_excess=true)
         @test length(mx.components) == 9
         rx = mx.reactions[6]
-        @test rx.is_light_complement
+        @test rx.light_inhibition ≈ 1.0   # Monod light term (complement retired)
         @test !haskey(rx.stoichiometric_coefficients, "PG")
         @test rx.stoichiometric_coefficients["PHO"] ≈ 0.63
         @test rx.stoichiometric_coefficients["NH4"] ≈ -0.06 * 0.63

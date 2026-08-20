@@ -32,7 +32,7 @@ durations(smoke) = smoke ?
      patStart=30.0, pulseOn=30.0, pulseOff=32.0, patLen=10.0)
 
 function the_model()
-    m = pathogen_model(phototroph_respiration=0.55, pg_excess=true)
+    m = pathogen_model(phototroph_respiration=0.55, pg_excess=true, normalized_light=true)
     coh = CahnHilliardModel(kappa=1e-7, zeta_0=m.cohesion_submodel.zeta_0,
                             zeta_1=m.cohesion_submodel.zeta_1)
     Model(m.components, m.reactions; cohesion_submodel=coh,

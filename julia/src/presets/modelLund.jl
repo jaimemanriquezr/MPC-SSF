@@ -30,7 +30,18 @@ kra = 0.0020–0.0210 /h, avg 0.0115 /h = 0.276 /d (Campos2006 Table 3, Brown &
 Barnwell 1987), θ_kra = 1.08. The default 0.0 reproduces the original 5-reaction
 model bit-for-bit (golden suites unchanged).
 """
-function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2, pg_yield::Real=0.63, pg_excess::Bool=false)
+function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2,
+                   pg_yield::Real=0.63, pg_excess::Bool=false,
+                   normalized_light::Bool=false, respiration_light_K::Real=1.0)
+    # normalized_light (Jaime, 2026-08-20): the filter's light_irradiation(t) is
+    # ALREADY the normalized intensity Î = I/I_opt, so the growth reaction's
+    # optimal_light_factor becomes 1.0 (the solver divides by it). With the
+    # inherited curves (peak 0.8) the surface then sits at 80% of optimal at
+    # noon — sub-optimal all day — instead of 44× optimal (photoinhibited),
+    # which was a units mismatch: I_opt = 1.814e-2 is Wolf2007's optimum in
+    # absolute PHOBIA units while the curves are dimensionless. Default false
+    # preserves the published behaviour and the golden suites.
+    I_OPT = normalized_light ? 1.0 : 1.814e-2
     density_particle = 1.117e3
     attenuation_particle = 0.094
     dispersivity_particle = 1.20e-2
@@ -66,7 +77,7 @@ function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2, pg
                                          "NH4" => -0.0248, "HPO4" => -0.0141, "DOM" => -1.5873))
 
     phototroph_growth = Reaction(name="Phototroph growth", is_light_dependent=true,
-        minimum_light_factor=0.01, optimal_light_factor=1.814e-2,
+        minimum_light_factor=0.01, optimal_light_factor=I_OPT,
         nominal_rate=5.50, temperature_correction_factor=1.047,
         order=Dict("PHO" => 1.0),
         half_saturation_constants=Dict("IC" => 2.00e-5, "NH4" => 1.20e-2, "HPO4" => 1.68e-4),
@@ -111,7 +122,7 @@ function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2, pg
         # mass-non-conservative toward the untracked pool.
         Y = float(pg_yield)
         phototroph_growth = Reaction(name="Phototroph growth", is_light_dependent=true,
-            minimum_light_factor=0.0, optimal_light_factor=1.814e-2,
+            minimum_light_factor=0.0, optimal_light_factor=I_OPT,
             nominal_rate=5.50, temperature_correction_factor=1.047,
             order=Dict("PHO" => 1.0),
             half_saturation_constants=Dict("IC" => 2.00e-5, "NH4" => 1.20e-2, "HPO4" => 1.68e-4),
@@ -124,9 +135,14 @@ function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2, pg
         # extrapolation from the reversed Lund row) drove post-scrape pools
         # negative even with a protection Monod (K smaller than the per-step
         # consumption quantum cannot protect an explicit step).
+        # Light response is a Monod (inhibition) term (Jaime, 2026-08-20):
+        # factor = K/(K + Î), K = respiration_light_K in the SAME units as the
+        # (normalized) intensity. K = 1 halves respiration at optimal light and
+        # lets it rise smoothly with depth; Wolf2007's sharp dark switch is
+        # recovered with K ≈ 4.4e-3.
         phototroph_respiration_rx = Reaction(name="Phototroph respiration",
             nominal_rate=float(phototroph_respiration), temperature_correction_factor=1.08,
-            is_light_complement=true,
+            light_inhibition=float(respiration_light_K),
             order=Dict("PHO" => 1.0),
             half_saturation_constants=Dict("O2" => 3.00e-3, "NH4" => 1.0e-6),
             stoichiometric_coefficients=Dict("PHO" => Y,
@@ -143,7 +159,7 @@ function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2, pg
         # carries the dark metabolism).
         f = float(pg_fraction)
         phototroph_growth = Reaction(name="Phototroph growth", is_light_dependent=true,
-            minimum_light_factor=0.0, optimal_light_factor=1.814e-2,
+            minimum_light_factor=0.0, optimal_light_factor=I_OPT,
             nominal_rate=5.50, temperature_correction_factor=1.047,
             order=Dict("PHO" => 1.0),
             half_saturation_constants=Dict("IC" => 2.00e-5, "NH4" => 1.20e-2, "HPO4" => 1.68e-4),
@@ -162,7 +178,7 @@ function modelLund(; phototroph_respiration::Real=0.0, pg_fraction::Real=0.2, pg
         Y = float(pg_yield)
         phototroph_respiration_rx = Reaction(name="Phototroph respiration",
             nominal_rate=float(phototroph_respiration), temperature_correction_factor=1.08,
-            light_inhibition=8e-5/1.814e-2,
+            light_inhibition=float(respiration_light_K),
             order=Dict("PHO" => 1.0),
             half_saturation_constants=Dict("O2" => 3.00e-3, "PG/PHO" => 0.005,
                                            "NH4" => 1.0e-6),
