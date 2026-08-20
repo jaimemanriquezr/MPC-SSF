@@ -79,3 +79,14 @@ Resolution: fix the exponent in ecomodel.tex to theta^(T - 293), keep Table 2
 theta values. Independent of the theta VALUE fixes: PHO growth 1.047 -> 1.066
 (Campos theta_kga), HET death 1.066 -> 1.08 (theta_kdb), endogenous k_rb theta
 1.047 -> 1.08 (theta_krb; probe-level error, conservative direction).
+
+## Addendum: heterotroph endogenous respiration DROPPED (2026-08-20, late)
+
+Jaime: k_rb is not needed — heterotroph growth is already oxygen-negative
+(-1.2317 per unit growth). Final proposed structure: endogenous respiration for
+PHO only (k_ra = 0.276/d, theta 1.08, O2-Monod protected); HET O2 demand lives
+in the growth term. Recorded consequence (probe evidence, not a counter-
+argument): in the field-influent probes k_rb carried ~1.4 mg/L of bed demand
+(PHO-only effluent 8.9 vs 9.10 influent; with k_rb 7.4-7.6), since growth-
+coupled heterotrophy is DOM-limited at this influent. Winter/summer flip
+conclusions unaffected (PHO-stock based; PHO-only ratio identical).
