@@ -39,3 +39,18 @@ respiration, source-faithful death):
 Our theta_growth,PHO = 1.047 is Campos's BACTERIA value; their algae theta_kga =
 1.066 (same a/b swap as their Table 3 symbol listing). Softens but cannot reorder
 theta_growth vs theta_loss; recorded for the Table 2 corrections.
+
+## Addendum: winter light-curve lever REFUTED (2026-08-20, late; probeLight.m)
+
+Sweep of the winter light amplitude (peaks 0.6/0.3/0.15, 10 d, decided structure,
+theta_growth,PHO = 1.066): a 4x light cut changes winter growth by 6% and stock by
+5% (0.0593 -> 0.0566 kg/m2; W/S 1.81 -> 1.73). Two causes: (1) Steele concavity —
+l(0.15) = 0.35 vs l(0.6) = 0.90, so light cuts are sub-linear in the factor;
+(2) growth is RECYCLED-PHOSPHORUS-limited, not light-limited: influent HPO4 = 0,
+so growth tracks the P released by death (+0.0037) and endogenous respiration
+(+0.01) — biomass-proportional, light-independent fluxes. The loop
+biomass -> losses -> P recycling -> growth makes the seasonal ratio pure theta
+arithmetic; under fixed influent, no growth-side parameter (mu, theta, light) can
+flip it. Only identified fixed-influent lever: route decay-released P into POM
+(hydrolysis-gated) instead of dissolved HPO4 — a structural change. This
+strengthens the adopted seasonal-influent resolution.
