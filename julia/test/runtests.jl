@@ -37,6 +37,26 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test compute_rate.(rxs, 20) ≈ [2.0, 5.0]
     end
 
+    @testset "cardinal temperature response (CTMI, Rosso 1993)" begin
+        ct = (0.0, 25.0, 35.0)
+        rx = Reaction(nominal_rate=3.0, temperature_response="cardinal",
+                      cardinal_temperatures=ct)
+        # Anchor: mu(20 degC) = nominal_rate exactly (pre-registered rescale).
+        @test compute_rate(rx, 20) ≈ 3.0
+        # Zero at/beyond the cardinal bounds.
+        @test compute_rate(rx, 0) == 0.0
+        @test compute_rate(rx, -5) == 0.0
+        @test compute_rate(rx, 35) == 0.0
+        # Peak at Topt exceeds the 20 degC anchor value.
+        @test compute_rate(rx, 25) > 3.0
+        # Reference value for the MATLAB cross-port anchor (10 digits):
+        # phi(3)/phi(20) with this triplet.
+        phi(t) = ((t - 35) * t^2) / (25 * (25*(t - 25) - (-10)*(25 - 2t)))
+        @test compute_rate(rx, 3) ≈ 3.0 * phi(3) / phi(20)
+        # Exponential default untouched.
+        @test Reaction(nominal_rate=3.0).temperature_response == "exponential"
+    end
+
     @testset "lookup matrices" begin
         het = Particle(name="HET", density=1.0)
         pom = Particle(name="POM", density=2.0)

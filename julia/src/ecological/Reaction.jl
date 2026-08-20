@@ -43,6 +43,12 @@ struct Reaction
     # activates where and when photosynthesis idles. Mutually exclusive with
     # the other two light modes.
     is_light_complement::Bool
+    # Temperature response form. "exponential" (default; goldens unchanged):
+    # mu20 * theta^(T - 20). "cardinal": CTMI (Rosso et al. 1993) with
+    # cardinal_temperatures = (Tmin, Topt, Tmax) in degC, rescaled so that
+    # mu(20 degC) = nominal_rate exactly (pre-registered anchor).
+    temperature_response::String
+    cardinal_temperatures::NTuple{3,Float64}
 end
 
 # Normalize a dict whose keys are either Strings or Components into String keys.
@@ -62,7 +68,9 @@ function Reaction(; name::AbstractString="",
                   minimum_light_factor::Real=0.0,
                   optimal_light_factor::Real=0.0,
                   light_inhibition::Real=0.0,
-                  is_light_complement::Bool=false)
+                  is_light_complement::Bool=false,
+                  temperature_response::AbstractString="exponential",
+                  cardinal_temperatures::NTuple{3,<:Real}=(NaN, NaN, NaN))
     count((is_light_dependent, light_inhibition > 0, is_light_complement)) > 1 &&
         throw(ArgumentError("light modes (dependent/inhibited/complement) are mutually exclusive"))
     return Reaction(String(name), nominal_rate, temperature_correction_factor,
@@ -70,7 +78,9 @@ function Reaction(; name::AbstractString="",
                     _namekeys(stoichiometric_coefficients),
                     efficiency_biofilm, efficiency_flowing,
                     is_light_dependent, minimum_light_factor, optimal_light_factor,
-                    light_inhibition, is_light_complement)
+                    light_inhibition, is_light_complement,
+                    String(temperature_response),
+                    NTuple{3,Float64}(cardinal_temperatures))
 end
 
 """
@@ -88,11 +98,11 @@ with `μ₂₀ = rx.nominal_rate`, `θ = rx.temperature_correction_factor`. `θ`
 `scale = :kelvin` pass both in kelvin (`nominal_temperature = 293`). Broadcast
 over a vector of reactions: `compute_rate.(reactions, T)`.
 
-NOTE: earlier ports (and MPC-SSF `computeRate.m`) used the dimensionless ratio
-`θ^(T/T_nom − 1)`, which makes the response ~293× too weak unless θ is
-recalibrated to θ^293; the authoritative slow-sand `run_biofilm.m` uses
-`θ^(293 − T_K)`, which has the sign flipped. Both coincide with this form only at
-the 20 °C reference.
+NOTE: the manuscript text (ecomodel.tex) wrote the dimensionless ratio
+`θ^(T/T_nom − 1)` — a typo (would make the response ~293× too weak); both the
+legacy `run_biofilm.m:91` (`θ^(T_K − 293)`) and this function implement the
+difference form. With `temperature_response == "cardinal"` the exponential is
+replaced by the CTMI curve rescaled to its 20 °C value.
 """
 function compute_rate(rx::Reaction, temperature::Real;
                       scale::Symbol=:celsius, nominal_temperature::Real=20)
@@ -107,7 +117,25 @@ function compute_rate(rx::Reaction, temperature::Real;
     else
         throw(ArgumentError("Invalid temperature scale $scale (use :celsius or :kelvin)"))
     end
-    return μ20 * θ^(T - Tnom)
+    if rx.temperature_response == "exponential"
+        return μ20 * θ^(T - Tnom)
+    elseif rx.temperature_response == "cardinal"
+        tC = T - 273
+        tRef = Tnom - 273
+        return μ20 * _ctmi(tC, rx.cardinal_temperatures) /
+                     _ctmi(tRef, rx.cardinal_temperatures)
+    else
+        throw(ArgumentError("Invalid temperature_response $(rx.temperature_response)"))
+    end
+end
+
+# CTMI (Rosso et al. 1993): zero outside (Tmin, Tmax), peak 1 at Topt.
+function _ctmi(t::Real, ct::NTuple{3,Float64})
+    tmin, topt, tmax = ct
+    (t <= tmin || t >= tmax) && return 0.0
+    num = (t - tmax) * (t - tmin)^2
+    den = (topt - tmin) * ((topt - tmin)*(t - topt) - (topt - tmax)*(topt + tmin - 2t))
+    return num / den
 end
 
 # --- (component × reaction) lookup matrices ---------------------------------
