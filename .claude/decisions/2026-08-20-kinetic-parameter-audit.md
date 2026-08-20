@@ -46,3 +46,20 @@ PHO: IC 1.2e-3, NH4 2.0e-5, HPO4 2.0e-5. Hydrolysis POM/HET 0.1.
 Plus corrected growth rates. Results in probe outputs (halfsat_{noresp,resp}.mat).
 
 Status: investigation only — model of record unchanged pending co-author decision.
+
+## Addendum: death/inactivation rates (2026-08-20, evening)
+
+Prompted by Jaime's question on inherent algal death in the sources:
+- Campos2006 has NO separate algal death rate: k_ra (respiration/excretion) IS the
+  entire inherent algae loss (Eq. 1 supernatant, Eq. 23 bed) plus protozoa grazing.
+  Bacteria do get k_db = 0.05-4.1 /d, avg 0.086/h = 2.06 /d.
+- Wolf2007 Table VI: inactivation b_ina,PH = 0.09 /d (assumed), b_ina,H = 0.4 /d
+  (Henze). Inactivation -> inert biomass, no O2 release.
+- Our d_PHO = 0.4 (cited Wolf) = Wolf's HETEROTROPH b_ina,H — fourth row slide,
+  same phototroph-takes-heterotroph pattern as mu_PHO. Wolf's phototroph value: 0.09.
+- Our d_HET = 2.0 (cited Wolf) matches Campos's avg k_db = 2.06 — right magnitude,
+  wrong citation.
+- Consequence for the endogenous proposal: the double-counting caveat resolves.
+  Source-faithful loss structure = death 0.09 (PHO) / ~2.0 (HET) with O2-NEUTRAL
+  stoichiometry (biomass -> POM/inerts; our current death rows release O2, matching
+  neither source) + endogenous respiration 0.276/1.72 carrying all O2 demand.
