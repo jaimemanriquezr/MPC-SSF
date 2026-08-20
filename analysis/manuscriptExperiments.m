@@ -94,13 +94,15 @@ infl = [2.68e-3, 1.00e-2, 0.0, pat, 9.10e-3, 6.23e-3, 2.00e-5, 0.0, 1.75e-4];
 end
 
 function m = theModel(opts, family)
-% family = "biofilm" (E1-E4: legacy srun_biofilm detachment 0.14*sqrt(v/18))
-% or "pathogen" (E5/E6/E10: legacy srun_pathogen 1.4e-5*sqrt(v/18), the
-% pathogenModel default). The legacy repo deliberately switched detachment
-% between the two run families; without the biofilm value the corrected
-% model clogs the surface cell by day ~6 at fine grids.
+% family = "biofilm" or "pathogen". DEVIATION from legacy (2026-08-20): the
+% legacy repo ran pathogen experiments with detachment 1.4e-5*sqrt(v/18)
+% (srun_pathogen), 1e-4 of the biofilm value -- under the corrected model the
+% unshed biofilm grows from the mature phib ~0.5 to the 0.99 clog inside the
+% 10-day pathogen window. Both families therefore use the biofilm detachment
+% 0.14*sqrt(v/18); flagged for co-author review (changes PAT matrix-release
+% tails vs the published figures).
 m = pathogenModel(PhototrophRespiration=opts.Respiration, PGExcess=opts.PGExcess);
-if family == "biofilm"
+if family == "biofilm" || family == "pathogen"
     m = Model(m.Components, m.Reactions, Kappa=opts.Kappa, ...
         Zeta0=m.CohesionSubModel.Zeta0, Zeta1=m.CohesionSubModel.Zeta1, ...
         DetachmentFunction=@(v) 0.14*sqrt(abs(v)/18), WaterDensity=m.WaterDensity, ...
