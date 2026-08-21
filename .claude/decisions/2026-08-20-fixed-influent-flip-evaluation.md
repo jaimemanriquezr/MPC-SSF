@@ -57,3 +57,27 @@ as cosmos job 3528328; on COMPLETED+consistent, the fixed-influent route is
 CLOSED and the seasonal influent stands as the unique resolution (B's only
 escape — a nutrient-independent mat — was already shown to require an external
 nutrient boundary condition, i.e., seasonal boundary again).
+
+## Addendum 2026-08-21b: asymptote run exposes the budget-residual method
+
+Winter theta=2.0 (mu-factor 8e-6, growth literally off; cosmos 3528329):
+PHO stock 0.0539, but the budget still attributes 0.0489 "growth" — a
+mu-INDEPENDENT residual. The residual method (probeBudget onward) is therefore
+measuring a systematic bookkeeping imbalance (~0.05 winter / presumably ~0.065
+summer), not photosynthetic growth. Supply convention checked in simulate.m
+(flux = porosity * (q/porosity) * c_in = q*c_in — correct); suspicion moves to
+phase-vs-bulk concentration conventions in the mass integrals. Decisive check
+submitted (cosmos 3528356): zero-biology run where dM must equal supply-export
+exactly, plus summer theta=2.0 for the true growth attribution.
+
+WHAT STANDS regardless (direct stock measurements, no residuals involved):
+- W/S = 1.81 / 1.76 / 1.72 / 1.65 at theta_growth 1.066 / 1.09 / 1.12 / 2.0.
+- The mu -> 0 winter asymptote is MEASURED: W/S floor = 0.0539/0.0326 = 1.65,
+  far above 1 — the fixed-influent closure conclusion (no growth-side
+  intervention can flip) holds and is STRONGER than the arithmetic predicted.
+WHAT IS QUARANTINED pending the mass check: all "growth residual" magnitudes
+and the per-capita growth/loss numbers derived from them (incl. the
+"P self-compensation" interpretation and the earlier "winter net-growing
++0.075/d" mechanism statement — winter stock is now shown to be essentially
+growth-independent, i.e., pure trapping/decay, which REinstates the original
+H1 reading).
