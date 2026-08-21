@@ -81,3 +81,28 @@ and the per-capita growth/loss numbers derived from them (incl. the
 +0.075/d" mechanism statement — winter stock is now shown to be essentially
 growth-independent, i.e., pure trapping/decay, which REinstates the original
 H1 reading).
+
+## Addendum 2026-08-21c: mass check — TRANSPORT CREATES PARTICLE MASS
+
+Zero-biology run (cosmos 3528356_0, probeMassCheck, data/mck_winter_masscheck.mat):
+all reaction rates 0, initial state all-zero (State.m verified), export ~0,
+q = 7.2 (SandFilter default verified). Hard bound: stock <= cumulative supply.
+Measured at 10 d: PHO 0.0536 vs supply 0.0360 (+49%); HET 0.4507 vs 0.1930
+(+133%). Particle mass is created in transport. Non-proportionality (stock
+ratio 8.41 vs influent ratio 5.36 under identical transport parameters and a
+shared velocity field) implies a concentration-dependent inconsistency —
+suspect phase-vs-bulk concentration conventions in the flowing/attachment
+coupling (simulate.m fluxFlowing/attachment terms), not a constant factor.
+
+Consequences:
+- The mu-independent "growth residual" (~0.05) is explained: it was this
+  transport excess, not growth. probeBudget-family residuals are dead.
+- W/S seasonal ratios compare like-for-like (identical influent both seasons)
+  and likely remain qualitatively valid; ABSOLUTE stocks are suspect.
+- Scope unknown: the refactor may share this with the legacy solver (published
+  results) and/or the Julia mirror (anchored to MATLAB, so it would reproduce
+  the same behavior). NEEDS a dedicated investigation: influent-off decay
+  test, single-cell analytic comparison, grid-refinement, legacy comparison.
+- Summer theta=2.0 asymptote (3528356_1): stock 0.0286 — with growth off and
+  the transport excess present, summer/winter absolute numbers are both
+  inflated; W/S floor at mu~0 recomputes to 0.0539/0.0286 = 1.88.
