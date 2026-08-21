@@ -38,3 +38,22 @@ Fixed-influent candidates: A dead, C dead (round 1), F likely-null (no run),
 B conditional-on-E, H adopted-but-worsens, E pending triplets. If E fails on
 honest triplets, the fixed-influent route closes with pre-registered evidence
 and the seasonal influent stands alone.
+
+## Addendum 2026-08-21: theta_growth sweep pre-empts E — evaluation closing
+
+Jaime asked why the TCF itself was never swept; diagnostic sweep run (cosmos
+array 3528283, probeTheta.m, data/theta_*.mat): theta_growth,PHO 1.066/1.09/1.12
+gives W/S = 1.81/1.76/1.72 — a 2.3x suppression of winter mu moves realized
+winter growth by 8%. Same self-compensation as the light sweep: growth is
+P-SUPPLY-limited, so HPO4 accumulates and the Monod climbs when mu drops.
+
+Consequence: in the mu_winter -> 0 limit, winter stock -> supply/losses ~ 0.036
+vs summer ~ 0.033: W/S ~ 1.1 (the trap-and-decay floor), still >= 1. The earlier
+prediction that a cardinal triplet flips to W/S ~ 0.28 was WRONG (mishandled the
+supply feedback); no growth-side intervention of ANY strength can flip under
+fixed influent. E is pre-empted regardless of triplet — the Bernard & Remond
+blocker is moot. Confirmation run (winter, theta=2.0, mu-factor 8e-6) submitted
+as cosmos job 3528328; on COMPLETED+consistent, the fixed-influent route is
+CLOSED and the seasonal influent stands as the unique resolution (B's only
+escape — a nutrient-independent mat — was already shown to require an external
+nutrient boundary condition, i.e., seasonal boundary again).
