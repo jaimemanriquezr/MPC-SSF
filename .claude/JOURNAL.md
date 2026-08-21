@@ -429,3 +429,13 @@ Also: at N=64 no first-order index resolved. At N=256 `sand_pathogen`'s S_i CI i
 - Report: reports/kinetics-audit-2026-08.{typ,pdf} — audit tables, probe chain,
   endogenous-respiration proposal, 5 recommendations. Probe data archived in
   analysis/probes/data/.
+
+## 2026-08-21 (early) — cosmos baselines timed out
+
+- msE3 3524843 + jlE3 3524845 (500 cells, PG-excess normalized-light baseline)
+  hit the 24 h wall limit with NO output written (dirs created, no frames/cache):
+  a 90-day 500-cell run does not fit in --time=1-00:00:00. Nothing worth
+  retrieving; regime is obsolete anyway (endogenous-respiration decisions
+  pending). When the model of record settles: resubmit with a longer limit
+  (partition max permitting) or split the 90-day run into chained checkpointed
+  stages via the existing mature-cache mechanism.
