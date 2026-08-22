@@ -439,3 +439,121 @@ Also: at N=64 no first-order index resolved. At N=256 `sand_pathogen`'s S_i CI i
   pending). When the model of record settles: resubmit with a longer limit
   (partition max permitting) or split the 90-day run into chained checkpointed
   stages via the existing mature-cache mechanism.
+
+## 2026-08-21 (continued)
+
+### What we accomplished
+- **Adversarial plan executed** (fixed-influent winter/summer flip evaluation;
+  plan ~/.claude/plans/unified-juggling-widget.md, 2 Opus-critic rounds):
+  - G-probe (5e985e8, matlab-claude): tau_P ~ 0.05-0.07 d both seasons ->
+    P-routing (A) dead; **P closure violated ~45%** — HET death releases
+    0.0209 P / 0.0653 N per unit vs 0.0141 / 0.0248 consumed (ran, flag OK).
+  - H-probe (c568e2b): nutrient-closed death rows cut the defect 10x but
+    worsen the flip (W/S 2.03 -> 2.51). Adopt as bug fix only (ran, flag OK).
+  - Cardinal (CTMI) TemperatureResponse implemented both ports (5e985e8 MATLAB,
+    89558ec Julia): opt-in, mu(20 C) anchor; MATLAB testCardinal PASSED, Julia
+    283/283 PASSED, goldens bit-identical.
+  - theta_growth sweep on cosmos (deb3b80; first run under the new
+    cosmos-only probe policy, slurm/theta_sweep.sbatch): W/S 1.81/1.76/1.72
+    at theta 1.066/1.09/1.12; winter theta=2.0 asymptote (job 3528329):
+    **W/S floor = 1.65 measured with growth annihilated** -> E pre-empted,
+    no growth-side intervention can flip; Bernard & Remond blocker moot.
+  - **Budget-residual method exposed** (ef4e5d2): the "growth" residual is
+    mu-independent (~0.05) -> all residual-derived mechanism numbers
+    quarantined (decision file 2026-08-20-fixed-influent-flip-evaluation.md,
+    addendum 2026-08-21b). Direct stock W/S measurements unaffected.
+- Cosmos 500-cell E3 baselines timed out at 24 h, no output (journaled earlier
+  today); queue cleaned.
+- Memory: new feedback memory probe-jobs-on-cosmos (Jaime: never run
+  simulation probes locally).
+
+### Plan for next session
+1. Fetch cosmos array **3528356** results (running at save time):
+   task 0 = zero-biology mass check (dM vs supply-export -> quantifies the
+   budget-residual bias), task 1 = summer theta=2.0 asymptote (true summer
+   growth contribution). Commit mck_*/theta_summer_th2 data; also commit the
+   already-fetched analysis/probes/data/theta_winter_th2.mat (untracked in
+   the worktree).
+2. Close the fixed-influent evaluation in the decision file with the mass-check
+   numbers; fold G/H/theta findings + death-row nutrient violation into
+   reports/kinetics-audit-2026-08.typ and recompile.
+3. Bring the co-author package to Jaime: model-of-record stack (corrected
+   rates/half-sats, PHO-only endogenous respiration, O2-neutral +
+   nutrient-closed death rows, normalized light, seasonal influent, theta
+   fixes incl. PHO growth 1.066 / HET death 1.08 / k_rb n/a) -> on approval,
+   promote to presets both ports, anchor, rerun manuscript suite (local 100c
+   + cosmos 500c with longer wall limits or chained 30-d stages).
+
+### Open questions / risks
+- Budget-residual bias source unknown until 3528356 lands (suspect phase-vs-
+  bulk concentration convention in probe mass integrals; solver influent flux
+  itself verified correct: porosity * (q/porosity) * c_in).
+- All per-capita growth/loss mechanism numbers from probeBudget-family are
+  quarantined; W/S stock ratios and O2 outputs stand.
+- Death-row nutrient violation (P/N minting) is a manuscript-level stoich fix
+  awaiting co-author sign-off alongside the rest of the audit.
+- Main-checkout uncommitted files (MANIFEST.md edits, zerocell_diag.jl,
+  run_export_pathogen.m, stray PDFs/worklogs) are pre-existing/Jaime's —
+  untouched by this session.
+
+## 2026-08-22 — Julia consolidated into SSF.jl; season90 probe on cosmos
+
+### What we accomplished
+- **Winter/summer, reframed by two field papers** (both new in `documents/`):
+  - Bae2023 (full-scale SSF, Korea): schmutzdecke live cell counts are
+    **winter 1.44 vs summer 1.25 x1e9 cells/g** (Table 2) — the model's W/S > 1
+    is not contradicted by the field. Summer *activity* is higher (DOC removal
+    43 vs 28%, UV254 59 vs 38%, Fig 4) while particle removal is flat (99%,
+    Fig 3). Influent seasonality is 0.50-0.79 across every channel — **above**
+    the model's 0.49 flip threshold, so on that site the model would not flip
+    either. Table 2 is confounded by run time (200 d vs 330 d since scraping).
+  - Bellamy1985: the temperature test is **fixed-influent** — Filter 6 chilled
+    to 5/2 C beside Filter 1 at 17 C on the same raw water (Table 1), i.e. the
+    E1/E2 protocol. Coliform removal 97 -> 87% (5 C) and 99.6 -> 92%, SPC
+    99.9 -> 90% (2 C), while Giardia removal stays >99.9% at both. All
+    activity, no standing-stock measurement.
+  - Consequence: the manuscript's `results.tex:165` claim is about *growth*
+    while `fig:seasons-results` plots *standing volume fraction*. Recomputing
+    the existing probe pairs in phi_b gives W/S = 1.05-1.18 at the peak and
+    ~1.0 at the sand surface, against 1.9-3.4 in PHO mass — the flip is largely
+    an algal-compartment statement, not a biofilm one.
+- **Transport "mass creation" is a probe artifact, not a solver bug.** The
+  scheme conserves `sum(eps_i * c_i * dz)`: fluxes are porosity-weighted and
+  divided by `porosityCenters` (`simulate.m:498-513`), and the sum telescopes
+  exactly. Every probe integrates `sum(c)*dz` with no eps weight, against
+  boundary fluxes already in bulk units (`q*c_in`). The implied bed fractions
+  (PHO 33%, HET 89%) match where each organism sits. Julia mirrors the same
+  conservative scheme (`julia/src/simulate.jl:521-533`), as does the legacy
+  solver. NOT yet confirmed by a re-run: the saved .mat stores `phoM` summed,
+  so the eps-weighted integral cannot be recomputed retroactively.
+- **cosmos array 3530219** (6 tasks, `probeSeason90.m`): 90 d at manuscript
+  resolution, three variants x two seasons, isolating the duration/influent/
+  kinetics confounds and reporting phi_b and mass metrics both raw and
+  eps-weighted. Running at journal time.
+- **Julia consolidated into `code/1d/SSF.jl`** — decision file
+  `2026-08-22-julia-consolidation.md`. `MPC-SSF/julia` retired after merging
+  `julia-split` (SSF.jl 283/283, goldens bit-identical); package renamed
+  MPCSSF -> SSF; `matlab-claude` merged (clean, 359 files); slurm/ split, with
+  the Julia scripts' billing account corrected lu2025-7-124 -> lu2026-2-100.
+
+### Plan for next session
+1. Fetch 3530219 and compare `manuscript` vs `corrected` vs `field` at 90 d.
+   The decisive cell is task 0/1: if the *published* configuration also gives
+   winter > summer, the inversion predates every correction and
+   `fig:seasons-results` does not follow from the committed model.
+2. Re-run `probeMassCheck` with the eps-weighted integral to close the
+   transport question (`dM == supply - export` to solver tolerance).
+3. Seasonal removal arm: no probe measures removal, and `runMarker` computes log
+   removals at a hardcoded 19 C (`manuscriptExperiments.m:336`) from a
+   summer-only mature cache. A winter arm would test Bellamy/Bae directly and
+   needs a `mature30_winter`.
+
+### Open questions / risks
+- W/S ratios are NOT automatically safe under the eps correction: the factor
+  `1 + 1.5f` is distribution-dependent, and winter/summer PHO profiles differ.
+- The seasonal influent (winter = 20% of summer, Campos2006b) is now the only
+  leg the flip stands on, and Bae2023's 0.50-0.79 is well above threshold.
+- Mauclaire2004 (doi 10.2166/aqua.2004.0009) is the sole support for the
+  manuscript's summer claim and is not yet in `documents/`; its title is about
+  clogging (a rate), not standing biomass.
+- Cosmos trees are rsync copies still carrying `julia/`; stale but harmless.
