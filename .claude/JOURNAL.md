@@ -557,3 +557,182 @@ Also: at N=64 no first-order index resolved. At N=256 `sand_pathogen`'s S_i CI i
   manuscript's summer claim and is not yet in `documents/`; its title is about
   clogging (a rate), not standing biomass.
 - Cosmos trees are rsync copies still carrying `julia/`; stale but harmless.
+
+## 2026-08-22 (continued)
+
+### What we accomplished
+- **slurm/ split** (`a493c5f` here, `2c4099b` in SSF.jl). Nine of thirteen batch
+  scripts were Julia jobs living in what is now a MATLAB-only repo; they `cd`'d
+  into `/home/jrman/MPC-SSF/julia` (deleted) and invoked `analysis/*.jl` that
+  exist only in SSF.jl (verified file-by-file). Eight moved; three defects fixed
+  in the move:
+  - `-A lu2025-7-124` -> `lu2026-2-100`. lu2025-7-124 is the HDG project's.
+    Both are valid for jrman on lu48 (`sacctmgr show assoc user=jrman`), so SSF
+    work was billing the wrong project **silently**, not failing.
+  - absolute log/working paths -> submit-directory-relative, matching the MATLAB
+    scripts' existing convention.
+  - `pkgtest` job name `mpcssf-pkgtest` -> `ssf-pkgtest`.
+  `sobol.sbatch` was deleted by Jaime mid-task and treated as deliberate (it was
+  the item-4 suggestion); removed rather than moved, its 48-thread lesson kept in
+  the SSF.jl README prose. READMEs split; MATLAB deploy target corrected to
+  `MPC-SSF-manuscript`, which is where those jobs have actually gone.
+- **Decision + journal records** (`285d54a`): `.claude/decisions/`
+  `2026-08-22-julia-consolidation.md`, per this repo's CLAUDE.md. Jaime's
+  previously-unstaged 2026-08-21 journal section was committed with it.
+- **Status report**: `reports/project-status-2026-08-22.{typ,pdf}`, compiled.
+
+### Verification status (explicit)
+- **Ran and passed**: SSF.jl `Pkg.test` 283/283 after the merge, goldens
+  bit-identical (`RESULT: MATCH`); MPC-SSF/julia 283/283 before deletion;
+  SSF.jl 276/276 pre-merge; `checkcode` clean on `probeSeason90.m`; typst
+  compile of the status report.
+- **Written, NOT run**: all eight moved slurm scripts. The account and path
+  corrections have never been exercised by an actual submission — the first
+  Julia job submitted from SSF.jl is the real test.
+- **Written, NOT verified**: the eps-weighted mass integrals in
+  `probeSeason90.m`. They are the proposed fix for the transport artifact but
+  have not yet been checked against a case with a known answer.
+- **In flight**: cosmos 3530219, 1 h 56 m into an 8 h wall, no output written.
+
+### Plan for next session
+1. Fetch cosmos **3530219** (6 tasks, `s90_*.mat`) into the matlab-claude
+   worktree's `analysis/probes/data/`. Compare `manuscript` vs `corrected` vs
+   `field` at 90 d in BOTH phi_b and PHO mass. Decisive cell is task 0/1: if the
+   published configuration also gives winter > summer, the inversion predates
+   every correction and `fig:seasons-results` does not follow from the committed
+   model.
+2. Re-run `probeMassCheck` with the eps-weighted integral; confirm
+   `dM == supply - export` to solver tolerance and lift or confirm the
+   budget-residual quarantine.
+3. Recompute the W/S floor (1.65-1.88) eps-weighted — it is NOT automatically
+   safe, the factor `1 + 1.5f` is bed-fraction dependent and the seasonal PHO
+   profiles differ.
+4. Seasonal removal arm (needs a `mature30_winter`): no probe measures removal,
+   and `runMarker` is hardcoded to 19 C (`manuscriptExperiments.m:336`).
+
+### Open questions / risks
+- `probeSeason90.m` and `season90.sbatch` remain **untracked** in the
+  matlab-claude worktree — the probe currently running on cosmos is not in git.
+- Cosmos trees are rsync copies (no git) still carrying `julia/` and the old
+  slurm scripts. Harmless now; redeploy before the next Julia run and let cosmos
+  resolve its own Manifest (Julia <= 1.10.4 there vs 1.12.6 locally).
+- `stash@{0}` in SSF.jl holds the superseded duplicate rename; safe to drop.
+- Mauclaire2004 (doi 10.2166/aqua.2004.0009) still not in `documents/`; it is
+  the sole support for the manuscript's summer claim and concerns clogging (a
+  rate), not standing biomass.
+- Nothing is pushed in either repo: SSF.jl is 5 commits ahead of origin/main,
+  MPC-SSF julia-port is 48 ahead of origin/julia-port.
+- Death-row nutrient violation (~45% P closure) still awaits co-author sign-off.
+
+## 2026-08-22 (later) — Liebig-limitation diagnostic; cover-sweep plan
+
+**Done.**
+- Read all 13 PDFs in `SSF/documents/` and wrote `reports/literature-synthesis-2026-08.typ`
+  (cross-paper discrepancies + model comparison + qualitative response matrix). Critic pass
+  found four arithmetic errors of mine (three percent→log conversions, one bed-depth
+  conversion) plus a wet-volume/dry-mass conflation in the φ_b comparison; all corrected
+  inline with the challenges boxed in the report.
+- Planned the referee-response experiments:
+  `.claude/plans/2026-08-22-cover-sweep-and-referee-experiments.md`.
+- Implemented `RecordLimitation` in `src/@State/simulate.m` (opt-in, default off).
+  `evaluateReactions` now returns `[rx, monod, lim]`. Verified **bit-identical** three ways
+  (pre-edit via `git stash`, post-edit flag off, post-edit flag on) across all 31
+  concentration arrays.
+- New probe `analysis/probes/probeLimitDiag.m`.
+
+**Learned — two findings that reorder the plan.**
+1. *The limiting nutrient was mis-assumed twice.* Manuscript stack: **NH₄**. Corrected stack:
+   **IC** (supernatant biofilm) and **HPO₄** (flowing). Not the phosphorus-recycling story in
+   `2026-08-20-winter-summer-flip.md`. The planned `+N` add-back arm would have relieved
+   nothing on the corrected stack.
+2. *Bed photosynthesis is absent, not small.* Î = 0.0608 at z = 0 → **1.39e-27** one cell in,
+   on both stacks. `LightAttenuationCoeffSand = 1500` gives a ~5 mm euphotic depth against
+   dz ≈ 9.95 mm. Campos2002's 0–2 cm sampling layer is two optically dark cells.
+
+   Combined with min-Monod **0.703** in the top 0–2 cm on the corrected stack, the covered/
+   uncovered null has **two regionally separate causes**: the supernatant is lit but
+   nutrient-capped (≈0.005), the bed top is nutrient-replete but unlit. Neither factor alone
+   explains it.
+
+**Next.** Respecify Stage B (`+N` → `+IC`, add `+ALL`); promote Stage B′ (η_sand ÷ 10,
+dz ÷ 3) to scheduled and run alongside B. Build `coverCases.m` / `probeCover.m` /
+`collectCover.m`, then ship to cosmos (`-A lu2026-2-100`, `lu48`) — re-rsync first, the
+remote trees are stale. Nothing beyond the smoke/diagnostic runs has been run locally.
+
+### Cover-sweep infrastructure (same day, autonomous block)
+
+Built `analysis/probes/{coverCases,coverTag,coverConfigFields,probeCover}.m`,
+`analysis/collectCover.m`, `slurm/cover_sweep.sbatch`. Registry-driven: 29 unique cells
+(A 5, B 16, B' 4, C 6), tagged by physics so the same configuration requested by two stages
+runs once. Ladders and pairs share one reduction path. Full build log:
+`SSF/reports/cover-sweep-build-2026-08-22.typ`.
+
+**Two bugs the smoke test caught, neither visible to checkcode:**
+1. `saferatio = @(a,b) a/b*(b>tol) + NaN*(b<=tol)` returns NaN for *every* input — `NaN*0`
+   is `NaN`. Replaced with a branching `safediv`.
+2. **The dark floor is on the wrong stack.** `modelLund.m` zeroes
+   `MinimumLightFactor` only inside its `PhototrophRespiration > 0` branches (:119, :146).
+   The manuscript stack passes that option and gets 0; the **corrected** stack appends
+   `phoEndog` by hand, never enters the branch, and **keeps the 0.01 floor**. So a fully
+   covered filter still photosynthesises at 1% of optimum — a fifth, unintended blocker on
+   the very contrast the sweep measures, and backwards from what
+   `results-redo-poc-2026-08.typ` records. `probeCover` now zeroes it explicitly.
+   **`probeSeason90.m` has the same defect**, including the runs behind cosmos job 3530219.
+
+**Verified:** lint clean ×5; 29/29 unique tags; solver bit-identical three ways; end-to-end
+chain to 3 CSVs; stale-artefact assertion fires on a tampered cfg; `bash -n` and array
+bounds cross-checked.
+
+**Not run:** anything at scale. Needs an rsync to cosmos (remote trees stale) and Jaime's
+ControlMaster socket. Open co-author question: the dark-floor defect affects season90 data
+already on the cluster.
+
+### Cosmos: recovered 3530219, deployed cover sweep, launched Stage A
+
+**Recovered the "decisive cell".** `sacct` showed all six tasks of season90 array 3530219
+FAILED (1:0) after ~3 h — but every task had printed `flag: "OK"`, `tFinal: 90` and saved
+its `.mat`. Cause: **the same `fprintf(["a" "b"], ...)` string-array bug** as in probeCover,
+at `probeSeason90.m:174`. The runs are sound; only the final summary line died. Fixed,
+linted, redeployed. Two probes have now hit this independently — worth a lint rule.
+
+All six fetched to the worktree's `analysis/probes/data/`.
+
+**The seasonal answer (W/S at 90 d, 100 cells, fixed influent):**
+
+| variant | phib_max | phib_int(eps) | PHO(eps) |
+|---|---|---|---|
+| manuscript | **1.125** | 1.673 | 3.432 |
+| corrected  | **1.091** | 1.545 | 2.091 |
+| field      | **1.027** | 1.266 | 1.955 |
+
+Winter > summer in **every** variant including the manuscript arm. Per the criterion in
+`project-status-2026-08-22.typ` §4, the inversion therefore predates every correction and
+the published figure does not follow from the committed model. Caveats: the magnitude in the
+plotted quantity is small (12.5% peak, 2.7% at field influent — inside the predicted 5-18%
+and consistent with Bae's 1.15 +- noise), and the "manuscript" arm carries the 2026-08-20
+normalised-light convention, so this does NOT isolate the light-convention change.
+
+**New alarm only a long run could expose:** the corrected stack goes **near-anoxic** at 90 d
+(bed min 0.024 / 0.041 mg/L) against 3.34 reported at 10 d. Elemo2024 measured filtrate DO
+never below 3.0 and no anoxia. Separately, field influent **loses the O2 deficit** entirely
+(summer effluent 9.25 vs 9.10 influent = net production). The redo's -3.7 mg/L used
+PG-excess respiration, not endogenous, so the two configurations must be reconciled before
+either number goes to a referee. The O2 claim in `literature-synthesis-2026-08.typ` §5.2 is
+provisional until then.
+
+**Deployed and launched.** 237 files rsynced to `~/MPC-SSF-manuscript/` (no `--delete`;
+s90 data verified surviving 6/6). Registry verified on the cluster. Submitted
+**job 3530596**, Stage A, `--array=1-5`, all five running concurrently on cn135.
+Stages B/B'/C deliberately held: the plan's gates are human.
+
+**Correction to the anoxia note above, after checking the profiles.** The bed does not sit
+near-anoxic; it **oscillates into anoxia nightly**. Day-mean bed minimum on
+`summer_corrected` is a comfortable 7.0 mg/L, but **32.1% of (cell, frame) samples in the
+bed over the final day are below 1 mg/L** (winter 37.5%), instantaneous minimum 0.024. The
+manuscript arm is 0% below 1 mg/L (min 3.27-3.54) and **field influent is 0%** (min
+5.86-6.53). Physically coherent: pore velocity 18 m/d traverses the 1 m bed in ~80 min, so
+the diel surface signal reaches the whole depth. So it is a corrected-kinetics + bloom-
+influent pathology specifically, invisible to both a 10-day run and a daily-mean diagnostic.
+
+Also: `o2_bed_min` in `probeSeason90.m` is misnamed -- it minimises over **all** z including
+the supernatant, so two of the six "bed" minima are supernatant cells.

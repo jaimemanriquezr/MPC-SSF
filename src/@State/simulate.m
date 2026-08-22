@@ -28,6 +28,13 @@ arguments
     % Euler on that term, unconditionally stable, and lets the CFL bound drop
     % 1/tau so dt is no longer osmosis-bound (~20x speedup on modelLund).
     parameters.ImplicitOsmosis (1,1) = false;
+
+    % Liebig-limitation diagnostic. When true, every frame additionally records
+    % which substrate is currently binding the min over Monod terms, the value
+    % of that min, and the two light arrays, for the biofilm and flowing
+    % regions. Purely observational: the reaction rates are bit-identical with
+    % it on or off, and nothing is allocated when it is off.
+    parameters.RecordLimitation (1,1) logical = false;
 end
 if ~isempty(options)
     for field = string(fieldnames(options)).'
@@ -151,6 +158,19 @@ concFramesBiofilm = zeros(length(depthCenters),numFrames, kP + kP + kL);
 concFramesWater = zeros(length(depthCenters),numFrames, 1);
 concFramesFlowing = zeros(length(depthCenters),numFrames, kP + kL);
 [velFramesBiofilm, velFramesFlowing] = deal(zeros(length(depthCenters)-1,numFrames,1));
+
+% ---------- LIMITATION DIAGNOSTIC (opt-in) --------------%
+% Allocated only when requested. uint8 for the argmin, single for the values:
+% ~13 MB for a 100-cell/2160-frame/6-reaction run.
+if parameters.RecordLimitation
+    nRx = numel(model.Reactions);   % == size(muRates, 2), but muRates is built later
+    limFramesBiofilm  = zeros(length(depthCenters), numFrames, nRx, "uint8");
+    limFramesFlowing  = zeros(length(depthCenters), numFrames, nRx, "uint8");
+    monodFramesBiofilm = nan(length(depthCenters), numFrames, nRx, "single");
+    monodFramesFlowing = nan(length(depthCenters), numFrames, nRx, "single");
+    lightFramesAtten  = nan(length(depthCenters), numFrames, "single");
+    lightFramesFactor = nan(length(depthCenters), numFrames, nRx, "single");
+end
 %========================================================%
 
 %=================== V. OUTPUT RESULTS ======================%
@@ -343,9 +363,16 @@ while t < timeStart + simulationTime
 
     % Phase efficiencies scale each reaction per region (defaults 1.0, so this
     % reduces to the unscaled rates for every pre-existing preset).
-    ecoRxBiofilm = efficiencyBiofilm.*evaluateReactions(localBiofilm, listK, phiBiofilm, muRates, lightFactor, listOrder);
+    if parameters.RecordLimitation
+        [rxB, monodB, limB] = evaluateReactions(localBiofilm, listK, phiBiofilm, muRates, lightFactor, listOrder);
+        [rxF, monodF, limF] = evaluateReactions(localFlowing, listK, phiFlowing, muRates, lightFactor, listOrder);
+        ecoRxBiofilm = efficiencyBiofilm.*rxB;
+        ecoRxFlowing = efficiencyFlowing.*rxF;
+    else
+        ecoRxBiofilm = efficiencyBiofilm.*evaluateReactions(localBiofilm, listK, phiBiofilm, muRates, lightFactor, listOrder);
+        ecoRxFlowing = efficiencyFlowing.*evaluateReactions(localFlowing, listK, phiFlowing, muRates, lightFactor, listOrder);
+    end
     ecoRxEnclosed = efficiencyBiofilm.*evaluateReactions(localEnclosed, listK, phiEnclosed, muRates, lightFactor, listOrder);
-    ecoRxFlowing = efficiencyFlowing.*evaluateReactions(localFlowing, listK, phiFlowing, muRates, lightFactor, listOrder);
 
     ecoRxM = ecoRxBiofilm*sigmaParticles';
     ecoRxPe = ecoRxEnclosed*sigmaParticles';
@@ -565,6 +592,15 @@ while t < timeStart + simulationTime
 
         velFramesBiofilm(:, counter, :) = velBiofilm;
         velFramesFlowing(:, counter, :) = velFlowing(2:end-1);
+
+        if parameters.RecordLimitation
+            limFramesBiofilm(:, counter, :)   = limB;
+            limFramesFlowing(:, counter, :)   = limF;
+            monodFramesBiofilm(:, counter, :) = single(monodB);
+            monodFramesFlowing(:, counter, :) = single(monodF);
+            lightFramesAtten(:, counter)      = single(lightAttenuated);
+            lightFramesFactor(:, counter, :)  = single(lightFactor);
+        end
         counter = counter + 1;
         if ~parameters.Quiet
             fprintf("t = %.4e\n", t);
@@ -601,23 +637,51 @@ results.Frames.Concentrations = cell2table(concentrations_cell,  ...
 results.Frames.Velocity.Biofilm = velFramesBiofilm;
 results.Frames.Velocity.Flowing = velFramesFlowing;
 
+if parameters.RecordLimitation
+    results.Frames.Limitation.Biofilm = limFramesBiofilm;
+    results.Frames.Limitation.Flowing = limFramesFlowing;
+    results.Frames.Limitation.MonodBiofilm = monodFramesBiofilm;
+    results.Frames.Limitation.MonodFlowing = monodFramesFlowing;
+    results.Frames.Limitation.LightAttenuated = lightFramesAtten;
+    results.Frames.Limitation.LightFactor = lightFramesFactor;
+    results.Frames.Limitation.Names = limitationNames(model, quotientNumIdx, quotientDenIdx);
+    results.Frames.Limitation.ReactionNames = [model.Reactions.Name];
+end
+
 results.TimeFinal = t;
 disp("Results saved.")
 end
 
-function rx = evaluateReactions(local, K, phi, mu, I, orders)
+function [rx, monod, lim] = evaluateReactions(local, K, phi, mu, I, orders)
     % monod = permute(min(min((local + realmin)./(K + local + realmin), [], 2), 1), [1 3 2]);
+    % `lim` records which column of `local` supplied the min for each cell and
+    % reaction (0 = the reaction has no Monod terms, so monod stays 1). The
+    % argmin is already computed by min(); returning it costs nothing and `rx`
+    % is unchanged. Column indices run over [Particles, Liquids, Quotients] --
+    % see limitationNames() for the matching labels.
     monod = ones(size(phi, 1), size(mu, 2));
+    lim = zeros(size(phi, 1), size(mu, 2), "uint8");
     for i = 1:size(monod, 2)
         ii = K{1, i};
         if any(ii)
             k = K{2, i};
             mon_term = (local(:, ii) + realmin)./(k + local(:, ii) + realmin);
-            monod(:, i) = min(mon_term, [], 2);
+            [monod(:, i), j] = min(mon_term, [], 2);
+            gidx = uint8(find(ii));
+            lim(:, i) = gidx(j);
         end
     end
     %product = permute(prod(local.^orders, 2, "omitnan"), [1 3 2]);
     product = local(:, orders);
     rx = phi.*mu.*I.*monod.*product;
+end
+
+function names = limitationNames(model, numIdx, denIdx)
+    % Labels for the columns of `local`, i.e. the values `lim` takes.
+    componentNames = [model.Components.Name];
+    names = componentNames;
+    for q = 1:numel(numIdx)
+        names(end+1) = componentNames(numIdx(q)) + "/" + componentNames(denIdx(q)); %#ok<AGROW>
+    end
 end
 
