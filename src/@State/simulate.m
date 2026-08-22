@@ -1,6 +1,7 @@
-function results = simulate(obj, parameters)
+function results = simulate(obj, options, parameters)
 arguments
     obj  State
+    options struct = struct.empty;
     parameters.InflowConcentrations = []
     parameters.SimulationTime (1,1) {mustBeNumeric} = 1.0;
     parameters.TimeStep (1,1) = 1E-5;
@@ -8,6 +9,32 @@ arguments
     parameters.CloggingFraction (1,1) {mustBeNumeric} = .99;
     parameters.IsUpwinded (1,1) = false;
     parameters.Quiet = false;
+
+    % Adaptive (CFL) time-stepping: set TimeStep="adaptive" to enable. Ported
+    % from slow-sand-filtration @SDfilter/run_biofilm.m (the authoritative
+    % reference). Assumes the Lund/Rosenqvist model structure (5 reactions in
+    % the order growth/growth/death/death/hydrolysis; particles HET,PHO,POM,PAT;
+    % liquids incl. the two growth half-saturations) -- see modelLund.
+    parameters.CFLFactor (1,1) {mustBeNumeric} = .99;
+    parameters.AdaptiveVelocityFactor (1,1) {mustBeNumeric} = 0;
+    parameters.AdaptiveTimeTolerance (1,1) {mustBeNumeric} = 1e-3;
+    parameters.AdaptiveInitialDt (1,1) {mustBeNumeric} = 5e-7;
+    parameters.AdaptiveMaxDt (1,1) {mustBeNumeric} = 5e-7;
+
+    % Backward-Euler integration of the osmosis relaxation (port of Julia
+    % simulate.jl `implicit_osmosis`; see implicit-osmosis.md). The relaxation is
+    % (beta*phiB - phiE)/tau = A_osm - kosm*phiW with kosm = (1-beta)/tau, a stiff
+    % linear decay in phiW. Damping the rate by 1/(1+dt*kosm) is exactly backward
+    % Euler on that term, unconditionally stable, and lets the CFL bound drop
+    % 1/tau so dt is no longer osmosis-bound (~20x speedup on modelLund).
+    parameters.ImplicitOsmosis (1,1) = false;
+end
+if ~isempty(options)
+    for field = string(fieldnames(options)).'
+        if isfield(parameters, field)
+            parameters.(field) = options.(field);
+        end
+    end
 end
 disp("Loading parameters...")
 filter = obj.SandFilter;
@@ -46,7 +73,9 @@ elseif isa(parameters.InflowConcentrations, "dictionary")
 else
     inflowConcentrations = parameters.InflowConcentrations;
 end
-inflowConcentrations = inflowConcentrations(:).';
+if ~isa(inflowConcentrations, 'function_handle')
+    inflowConcentrations = inflowConcentrations(:).';
+end
 
 %================= I. SAND FILTER PARAMETERS ====================%
 depthCenters = filter.GridPoints.Centers;
@@ -145,18 +174,76 @@ counter = counter + 1;
 %=========================================================================%
 
 %=============== VI. TIME INTEGRATION ====================================%
-dt = timeStep;
-results.SimulationData.TimeStep = dt;
+% Time-stepping mode: a numeric TimeStep is a fixed dt; TimeStep="adaptive"
+% recomputes dt each step from a per-step CFL bound (ported from
+% slow-sand-filtration @SDfilter/run_biofilm.m).
+if isnumeric(timeStep)
+    adaptivity = "fixed";
+    dt = timeStep;
+    results.SimulationData.TimeStep = dt;
+else
+    adaptivity = "adaptive";
+    dt = parameters.AdaptiveInitialDt;
+    results.SimulationData.TimeStep = "adaptive";
+end
+cflFactor = parameters.CFLFactor;
+adaptiveVelocityFactor = parameters.AdaptiveVelocityFactor;
+adaptiveTimeTolerance = parameters.AdaptiveTimeTolerance;
+adaptiveMaxDt = parameters.AdaptiveMaxDt;
+
+% CFL constants (Lund-structured model assumption; see the arguments block).
+alphaP = alpha(1);
+alphaL = alpha(kP + 1);
+% liquid half-saturation constants for the two growth reactions; absent -> inf
+% so the corresponding 1/(S+K) contribution vanishes.
+halfSatLiquids = model.HalfSaturationConstants(kP+1:kP+kL, :);
+% Guarded for non-Lund models with < 2 reactions (constants only feed the
+% adaptive CFL bound; fixed-step runs never read them).
+[K_HetGrowth, K_PhoGrowth] = deal(inf(kL, 1));
+if size(halfSatLiquids, 2) >= 1, K_HetGrowth = halfSatLiquids(:, 1); end
+if size(halfSatLiquids, 2) >= 2, K_PhoGrowth = halfSatLiquids(:, 2); end
+K_HetGrowth(isnan(K_HetGrowth)) = inf;
+K_PhoGrowth(isnan(K_PhoGrowth)) = inf;
+K_CFL = [K_HetGrowth, K_PhoGrowth];
+% hydrolysis quotient (POM/HET) half-saturation constant
+if isempty(quotientK)
+    K_Hyd = inf;
+else
+    K_Hyd = max(quotientK(:));
+end
 
 t = timeStart;
-muRates = reshape(model.Reactions.computeRate(temperature), 1, []);
+% Use the Model method (arrayfun over reactions); calling
+% model.Reactions.computeRate(...) on the reaction array returns only the first
+% reaction's rate, which is wrong whenever rates differ between reactions.
+muRates = reshape(model.computeReactionRates(temperature), 1, []);
 lightOptimal = max([model.Reactions.OptimalLightFactor]);
+if isempty(lightOptimal) || lightOptimal <= 0
+    lightOptimal = 1.0;   % inhibited-only models: keep the normalization finite
+end
+lightInhibition = [model.Reactions.LightInhibition];
+inhibitionDependency = lightInhibition > 0;
+complementDependency = [model.Reactions.IsLightComplement];
+if any((inhibitionDependency + [model.Reactions.IsLightDependent] + complementDependency) > 1)
+    error("light modes (dependent/inhibited/complement) are mutually exclusive");
+end
 attenuationParticles = [model.Particles.Attenuation];
 
 minimumLight = [model.Reactions.MinimumLightFactor];
 lightDependency = [model.Reactions.IsLightDependent];
 minimumLight = minimumLight(lightDependency);
 lightFactor = ones(length(filter.GridPoints.Centers), length(model.Reactions));
+
+% Per-reaction phase efficiencies (1 x nRx, default 1.0). EfficiencyFlowing is
+% the general form of the pathogen model's water_factor (every reaction inert in
+% the flowing phase except bacterivory, scaled there by water_factor);
+% EfficiencyBiofilm scales the biofilm/enclosed phases. Mirrors
+% julia/src/simulate.jl:225-226.
+efficiencyBiofilm = reshape([model.Reactions.EfficiencyBiofilm], 1, []);
+efficiencyFlowing = reshape([model.Reactions.EfficiencyFlowing], 1, []);
+% Per-particle bare-sand attachment scaling (1 x kP, default 1.0); the pathogen
+% model's sand_pathogen. Mirrors julia/src/simulate.jl:228.
+sandFactors = reshape([model.Particles.SandAttachmentFactor], 1, kP);
 
 if isnumeric(inflowConcentrations)
     globalConcInflow = [inflowConcentrations(:)].';
@@ -234,11 +321,31 @@ while t < timeStart + simulationTime
     light = filter.LightIrradiation(t);
     lightAttenuated = light * exp(-eta) / lightOptimal;
     lightEffective = lightAttenuated.*exp(1 - lightAttenuated);
-    lightFactor(:, lightDependency) = (minimumLight + lightEffective + abs(minimumLight + lightEffective))/2;
+    % Dark-respiration FLOOR (authoritative slow-sand-filtration form
+    % I = max(fdark, I_eff*e^{1-I_eff}); @SDfilter/run_biofilm.m, run_pathogen.m).
+    % Was the additive (minimumLight + lightEffective + |...|)/2 = max(0, min+eff),
+    % which double-counts the baseline at high light. MinimumLightFactor stands in
+    % for the global dark_respiration. Equal to the old form when either is 0.
+    if any(lightDependency)
+        lightFactor(:, lightDependency) = max(minimumLight, lightEffective);
+    end
+    % Dark-switch reactions (Wolf2007 r6): K/(K + I_local), same normalization
+    % as lightAttenuated.
+    for jInh = find(inhibitionDependency)
+        K = lightInhibition(jInh);
+        lightFactor(:, jInh) = K./(K + lightAttenuated);
+    end
+    % Complement reactions: 1 - Steele(I) (Steele <= 1, factor stays in [0,1])
+    % -- on in darkness, zero at optimal light.
+    for jCmp = find(complementDependency)
+        lightFactor(:, jCmp) = 1 - lightEffective;
+    end
 
-    ecoRxBiofilm = evaluateReactions(localBiofilm, listK, phiBiofilm, muRates, lightFactor, listOrder);
-    ecoRxEnclosed = evaluateReactions(localEnclosed, listK, phiEnclosed, muRates, lightFactor, listOrder);
-    ecoRxFlowing = evaluateReactions(localFlowing, listK, phiFlowing, muRates, lightFactor, listOrder);
+    % Phase efficiencies scale each reaction per region (defaults 1.0, so this
+    % reduces to the unscaled rates for every pre-existing preset).
+    ecoRxBiofilm = efficiencyBiofilm.*evaluateReactions(localBiofilm, listK, phiBiofilm, muRates, lightFactor, listOrder);
+    ecoRxEnclosed = efficiencyBiofilm.*evaluateReactions(localEnclosed, listK, phiEnclosed, muRates, lightFactor, listOrder);
+    ecoRxFlowing = efficiencyFlowing.*evaluateReactions(localFlowing, listK, phiFlowing, muRates, lightFactor, listOrder);
 
     ecoRxM = ecoRxBiofilm*sigmaParticles';
     ecoRxPe = ecoRxEnclosed*sigmaParticles';
@@ -247,7 +354,12 @@ while t < timeStart + simulationTime
     ecoRxLf = ecoRxFlowing*sigmaLiquids';
 
     attE = attachmentEnclosedFactor.*globalEnclosedP.*attachmentRates;
-    attF = attachmentFlowingFactor.*globalFlowingP.*attachmentRates;
+    % Flowing attachment splits into a bare-sand term (scaled per particle by
+    % SandAttachmentFactor) and a biofilm term. With every factor 1.0 this is
+    % identically attachmentFlowingFactor.*globalFlowingP.*attachmentRates.
+    % Mirrors julia/src/simulate.jl:385-386. (N x 1) .* (1 x kP) -> N x kP.
+    attachmentFlowingFactorP = (1 - porosityCenters).*sandFactors + porosityCenters.*phiBiofilm;
+    attF = attachmentFlowingFactorP.*globalFlowingP.*attachmentRates;
 
     velFlowingCenters = .5*(velFlowing(2:end) + velFlowing(1:end-1));
     detM = model.DetachmentFunction(velFlowingCenters).*globalMatrix;
@@ -266,12 +378,18 @@ while t < timeStart + simulationTime
     rhsBiofilm = [reactionsMatrix, reactionsEnclosedParticles, reactionsEnclosedLiquids];
     rhsFlowing = [reactionsFlowingParticles, reactionsFlowingLiquids];
     rhsEnclosedWater = (beta*phiBiofilm - phiEnclosed)/tau;
+    kosm = (1 - beta)/tau;
+    if parameters.ImplicitOsmosis
+        rhsEnclosedWaterA = rhsEnclosedWater./(1 + dt*kosm);
+    else
+        rhsEnclosedWaterA = rhsEnclosedWater;
+    end
 
     %=================== IV. SOLVER A: compute biofilm velocity ======================%
     rhsBiofilmVolume = sum(reactionsMatrix,2)/densityP ...
                         + sum(reactionsEnclosedParticles,2)/densityP ...
                         + sum(reactionsEnclosedLiquids,2)/densityL ...
-                        + rhsEnclosedWater;
+                        + rhsEnclosedWaterA;
     rhsBiofilmVolume = rhsBiofilmVolume(1:n0);
 
     u = phiBiofilm(1:n0);
@@ -294,6 +412,59 @@ while t < timeStart + simulationTime
     velFlowing = [volumeAvgVelocity(1);
         (volumeAvgVelocity(2:end-1) - velBiofilm.*phiBiofilmBoundaries)./(1 - phiBiofilmBoundaries);
         volumeAvgVelocity(end)];
+
+    %===================== TIME ADAPTIVITY (CFL) ==========================%
+    % Per-step CFL bound, ported from slow-sand-filtration
+    % @SDfilter/run_biofilm.m. dt grows by at most (1 + tolerance) per step
+    % toward the CFL limit, capped at AdaptiveMaxDt. Weights: w_v advection,
+    % w_a dispersion, w_b exchange (attach/detach/transfer/osmosis), w_s
+    % ecological source terms; one entry per region (matrix, enclosed P,
+    % enclosed L, flowing P, flowing L).
+    if adaptivity == "adaptive"
+        vbmax = (1 + adaptiveVelocityFactor)*max(abs(velBiofilm));
+        vfmax = (1 + adaptiveVelocityFactor)*max(abs(velFlowing));
+        maxPhib = max(phiBiofilm);
+        phie_f_max = max(phiEnclosed./phiFlowing);
+        det_vf = model.DetachmentFunction(velFlowingCenters);
+
+        % liquid-consumption bound from the two growth reactions (HET, PHO)
+        Xb_r = permute(localBiofilmX(:, [1 2]), [3 2 1]);   % 1 x 2 x N
+        Xe_r = permute(localEnclosedX(:, [1 2]), [3 2 1]);
+        Xf_r = permute(localFlowingX(:, [1 2]), [3 2 1]);
+        sigmaLiquidsGrowth = sigmaLiquids(:, 1:2);          % kL x 2
+        muGrowth = muRates(1:2);                            % 1 x 2
+        L_b = -sum(sigmaLiquidsGrowth.*(muGrowth.*Xb_r)./(permute(localBiofilmS, [2 3 1]) + K_CFL), 2);
+        L_e = -sum(sigmaLiquidsGrowth.*(muGrowth.*Xe_r)./(permute(localEnclosedS, [2 3 1]) + K_CFL), 2);
+        L_f = -sum(sigmaLiquidsGrowth.*(muGrowth.*Xf_r)./(permute(localFlowingS, [2 3 1]) + K_CFL), 2);
+
+        % hydrolysis quotient monod (POM/HET) per region
+        Xi_b = localBiofilmX(:,3)./(localBiofilmX(:,3) + K_Hyd*localBiofilmX(:,1)); Xi_b(isnan(Xi_b)) = 0;
+        Xi_e = localEnclosedX(:,3)./(localEnclosedX(:,3) + K_Hyd*localEnclosedX(:,1)); Xi_e(isnan(Xi_e)) = 0;
+        Xi_f = localFlowingX(:,3)./(localFlowingX(:,3) + K_Hyd*localFlowingX(:,1)); Xi_f(isnan(Xi_f)) = 0;
+
+        % death-reaction source bound (HET death rx 3, PHO death rx 4)
+        ws_t0 = max(abs(sigmaParticles(1,3))*muRates(3), abs(sigmaParticles(2,4))*muRates(4));
+
+        w_v = [2*vbmax*[1 1 1], 2*vfmax*[1 1]];
+        w_a = [0 0 0, ...
+               2*vfmax*alphaP*(1 + 1/(1 - maxPhib)), ...
+               2*vfmax*alphaL*(1 + 1/(1 - maxPhib))];
+        w_b = [max(det_vf), ...
+               max(attachmentRates)*max(attachmentEnclosedFactor) + max(transportParticleRates)/beta, ...
+               max([max(transportLiquidRates)/beta, ...
+                    ~parameters.ImplicitOsmosis/tau]), ...
+               max(attachmentRates)*max(attachmentFlowingFactor) + max(transportParticleRates)/beta*phie_f_max, ...
+               max(transportLiquidRates)/beta*phie_f_max];
+        w_s = [max(ws_t0, abs(sigmaParticles(3,5))*muRates(5)*max(Xi_b)), ...
+               max(ws_t0, abs(sigmaParticles(3,5))*muRates(5)*max(Xi_e)), ...
+               max(abs(L_b), [], 'all') + max(abs(L_e), [], 'all'), ...
+               max(ws_t0, abs(sigmaParticles(3,5))*muRates(5)*max(Xi_f)), ...
+               max(abs(L_f), [], 'all')];
+
+        dt_CFL = cflFactor/max(w_v/dz + w_a/dz^2 + w_b + w_s);
+        dt = min([dt_CFL, (1 + adaptiveTimeTolerance)*dt, adaptiveMaxDt]);
+    end
+    %======================================================================%
 
     %%%% FLUX COMPUTING %%%%
     % BIOFILM
@@ -340,14 +511,26 @@ while t < timeStart + simulationTime
     %======================= VI. MAIN: update cell values =================================%
     globalBiofilm = globalBiofilm + (dt/dz)*(fluxBiofilmIn - fluxBiofilmOut)./porosityCenters + dt*rhsBiofilm;
     globalFlowing = globalFlowing + (dt/dz)*(fluxFlowingIn - fluxFlowingOut)./porosityCenters + dt*rhsFlowing;
-    phiW = phiW + (dt/dz)*(fluxWaterIn - fluxWaterOut)./porosityCenters + dt*rhsEnclosedWater;
+    if parameters.ImplicitOsmosis
+        rhsEnclosedWaterB = rhsEnclosedWater./(1 + dt*kosm);
+    else
+        rhsEnclosedWaterB = rhsEnclosedWater;
+    end
+    phiW = phiW + (dt/dz)*(fluxWaterIn - fluxWaterOut)./porosityCenters + dt*rhsEnclosedWaterB;
 
     %========== CHECK IF CONCENTRATIONS ARE NEGATIVE ============%
-    problemCellBiofilm = mod(find(globalBiofilm(:) < 0 | isnan(globalBiofilm(:))), size(globalBiofilm, 1));
+    % Underflow floor: a sink acting on an exactly-zero pool (r6 consuming PG
+    % before any is stored; POM hydrolysis) leaves O(realmin) negatives from
+    % the Monod regularizer that would trip the strict guard below. Clamp only
+    % denormal-scale negatives; genuine instabilities overshoot far beyond -1e-20.
+    globalBiofilm(globalBiofilm < 0 & globalBiofilm > -1e-20) = 0;
+    globalFlowing(globalFlowing < 0 & globalFlowing > -1e-20) = 0;
+    problemCellBiofilm = find(globalBiofilm(:) < 0 | isnan(globalBiofilm(:)));
     if ~isempty(problemCellBiofilm)
-        fprintf('Unphysical concentration in biofilm. \nTIME = %e\n',t)
-        fprintf("CELL = %i\n", problemCellBiofilm(1) - n0)
-        fprintf("HEIGHT = %i\n", depthCenters(problemCellBiofilm(1)));
+        [pRow, pCol] = ind2sub(size(globalBiofilm), problemCellBiofilm(1));
+        fprintf('Unphysical concentration in biofilm. \nTIME = %e\nCELL = %d (z = %g), STATE COLUMN = %d, VALUE = %e\n', ...
+            t, pRow, depthCenters(pRow), pCol, globalBiofilm(pRow, pCol))
+
         results.Flag = "BIOFILM";
         results.SimulationData.error.description = "Concentration in biofilm volume has reached unphysical values.";
         results.SimulationData.error.problem_cells = problemCellBiofilm;

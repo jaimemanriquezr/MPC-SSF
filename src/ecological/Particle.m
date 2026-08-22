@@ -3,6 +3,10 @@ classdef Particle < Component & matlab.mixin.CustomDisplay
         AttachmentMatrix double = 0.0 % [1/day]
         AttachmentSand double = 0.0 % [1/day]
         Attenuation double = 0.0 % [m^2/kg]
+        % Scales attachment to BARE SAND relative to AttachmentSand; the biofilm
+        % share of the flowing-attachment factor is unaffected. 1.0 (the default)
+        % reproduces the undifferentiated behaviour of every existing preset.
+        SandAttachmentFactor double = 1.0 % [-]
     end
     methods
         function obj = Particle(input)
@@ -14,8 +18,10 @@ classdef Particle < Component & matlab.mixin.CustomDisplay
                 input.AttachmentMatrix double = []
                 input.Transport double = []
                 input.Attenuation double = []
+                input.SandAttachmentFactor double = []
             end
-            extra_fields = ["AttachmentSand", "AttachmentMatrix", "Attenuation"];
+            extra_fields = ["AttachmentSand", "AttachmentMatrix", "Attenuation", ...
+                            "SandAttachmentFactor"];
             input_args = namedargs2cell(rmfield(input, extra_fields));
             obj = obj@ Component(input_args{:});
             for field = extra_fields

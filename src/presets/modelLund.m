@@ -1,6 +1,36 @@
 function model = modelLund(options)
     arguments
             options.WriteFile = false;
+            % > 0 enables the phototroph metabolic split (plan
+            % 2026-08-18-phototroph-respiration): appends a sixth reaction
+            % "Phototroph respiration" (first-order in PHO, light-independent,
+            % O2-Monod-limited, stoichiometry = reverse of phototroph growth)
+            % at this nominal rate, and drops the growth reaction's dark floor
+            % (MinimumLightFactor) to 0. Literature: kra = 0.0020-0.0210 /h,
+            % avg 0.0115 /h = 0.276 /d (Campos2006 Table 3, Brown & Barnwell
+            % 1987), theta_kra = 1.08. Default 0.0 reproduces the original
+            % 5-reaction model exactly (goldens unchanged).
+            options.PhototrophRespiration (1,1) {mustBeNumeric} = 0.0;
+            % Wolf2007 storage fraction f (kg COD PG per kg COD PHO built) and
+            % yield Y_PH/PG (ASSUMED 0.63, the ASM heterotroph yield; Wolf2007
+            % Table VI leaves it unpinned).
+            options.PGFraction (1,1) {mustBeNumeric} = 0.2;
+            options.PGYield (1,1) {mustBeNumeric} = 0.63;
+            % true = LightIrradiation(t) is ALREADY the normalized intensity
+            % I_hat = I/I_opt, so the growth reaction's OptimalLightFactor
+            % becomes 1.0. With the inherited curves (peak 0.8) the surface is
+            % then sub-optimal all day instead of 44x optimal (units mismatch:
+            % 1.814e-2 is Wolf2007's optimum in absolute PHOBIA units).
+            options.NormalizedLight (1,1) logical = false;
+            % Respiration light response is a Monod term K/(K + I_hat); K in
+            % the same units as the (normalized) intensity. K = 1 halves
+            % respiration at optimal light; Wolf's sharp dark switch ~ 4.4e-3.
+            options.RespirationLightK (1,1) {mustBeNumeric} = 1.0;
+            % true = PG-in-excess variant: the storage pool is assumed never
+            % limiting and is NOT tracked (no PG component); respiration's
+            % light factor is the complement 1 - Steele(I) of the growth
+            % factor. Deliberately mass-non-conservative toward the pool.
+            options.PGExcess (1,1) logical = false;
     end
 
     densityParticle = 1.117E+03;
@@ -22,15 +52,15 @@ function model = modelLund(options)
     densityLiquid = 0.998E+03;
     dispersivityLiquid = 1.20E-02;
     O2 =  Liquid(Name="O2", Density=densityLiquid, Dispersivity=dispersivityLiquid, ...
-                            Transport=6.00E+01);
+                            Transport=6.00E+02);
     IC =  Liquid(Name="IC", Density=densityLiquid, Dispersivity=dispersivityLiquid, ...
-                            Transport=6.00E+01);
+                            Transport=6.00E+02);
     NH4 =  Liquid(Name="NH4", Density=densityLiquid, Dispersivity=dispersivityLiquid, ...
-                            Transport=6.00E+01);
+                            Transport=6.00E+02);
     HPO4 =  Liquid(Name="HPO4", Density=densityLiquid, Dispersivity=dispersivityLiquid, ...
-                            Transport=6.00E+01);
+                            Transport=6.00E+02);
     DOM =  Liquid(Name="DOM", Density=densityLiquid, Dispersivity=dispersivityLiquid, ...
-                            Transport=6.00E+01);
+                            Transport=3.00E+02);
 
 
     heterotrophGrowth =  Reaction(Name="Heterotroph growth", IsLightDependent=false, ...
@@ -42,7 +72,8 @@ function model = modelLund(options)
                                         "O2", -1.2317, "IC", 0.3848, "NH4", -0.0248, "HPO4", -0.0141, "DOM", -1.5873));
 
     phototrophGrowth =  Reaction(Name="Phototroph growth", IsLightDependent=true, ...
-            MinimumLightFactor=0.01, OptimalLightFactor=1.814E-02, ...
+            MinimumLightFactor=0.01, ...
+            OptimalLightFactor=ternaryOpt(options.NormalizedLight), ...
             NominalRate=5.50, ...
             TemperatureCorrectionFactor=1.047, ...
             Order=dictionary("PHO", 1), ...
@@ -79,6 +110,61 @@ function model = modelLund(options)
                     heterotrophDeath; 
                     phototrophDeath; 
                     hydrolysis];
+    if options.PhototrophRespiration > 0 && options.PGExcess
+        % PG-in-excess variant (Jaime, 2026-08-19): growth keeps the original
+        % Lund row (floor retired); respiration is Wolf2007 r6 WITHOUT the PG
+        % column, light factor = 1 - Steele(I): biomass built in dark places,
+        % consuming NH4 and O2, releasing IC.
+        Y = options.PGYield;
+        phototrophGrowth.MinimumLightFactor = 0.0;
+        reactionList(2) = phototrophGrowth;
+        % NH4/HPO4 half-saturations are DEPLETION PROTECTION (far below any
+        % ambient level): without them the consumed pools cross zero once
+        % drained (bottom-bed enclosed NH4 at fine grids).
+        phototrophRespiration = Reaction(Name="Phototroph respiration", ...
+                NominalRate=options.PhototrophRespiration, ...
+                LightInhibition=options.RespirationLightK, ...
+                TemperatureCorrectionFactor=1.08, ...
+                Order=dictionary("PHO", 1), ...
+                HalfSaturationConstants=dictionary(["O2", "NH4"], [3.00E-03, 1.0E-06]), ...
+                StoichiometricCoefficients=dictionary( ...
+                        ["PHO", "O2", "IC", "NH4"], ...
+                        [Y, -(1.0667 - 0.9301*Y), 0.4 - 0.36*Y, -0.06*Y]));
+        reactionList = [reactionList; phototrophRespiration];
+    elseif options.PhototrophRespiration > 0
+        % Wolf2007 (PHOBIA): photosynthesis stores the f-fraction into an
+        % internal polyglucose pool PG (CH2O: +1.0667 O2, -0.4 C per unit PG);
+        % dark respiration (r6) grows PHO on PG, consuming NH4 and O2. PG is
+        % transport-identical to PHO (intracellular) and appended as the 5th
+        % particle so Lund-structure indices survive. Dark floor retired.
+        f = options.PGFraction;
+        Y = options.PGYield;
+        PG = Particle(Name="PG", Density=densityParticle, Dispersivity=dispersivityParticle, ...
+                      Transport=5.47, AttachmentSand=5.47E+02, AttachmentMatrix=5.47E+02, ...
+                      Attenuation=attenuationParticle);
+        componentList = [componentList(1:4); PG; componentList(5:end)];
+        phototrophGrowth.MinimumLightFactor = 0.0;
+        phototrophGrowth.StoichiometricCoefficients = dictionary( ...
+                ["PHO", "PG", "O2", "IC", "NH4", "HPO4"], ...
+                [1.0, f, 0.9301 + 1.0667*f, -(0.3600 + 0.4*f), -0.0600, -0.0100]);
+        reactionList(2) = phototrophGrowth;
+        % r6: rate 0.1*q_max = 0.55/d (Tillmann & Rick 2001), first-order in
+        % PHO, min-Monod over O2 and the PG/PHO quotient (K_S,PH,PG = 0.005,
+        % Wolf Table VI), dark-only via K_inh/(K_inh + I), K_inh = 8e-5
+        % normalized by I_opt = 1.814e-2. Columns are the difference of the
+        % PG-synthesis and biomass rows, so COD/elements balance exactly.
+        phototrophRespiration = Reaction(Name="Phototroph respiration", ...
+                NominalRate=options.PhototrophRespiration, ...
+                LightInhibition=options.RespirationLightK, ...
+                TemperatureCorrectionFactor=1.08, ...
+                Order=dictionary("PHO", 1), ...
+                HalfSaturationConstants=dictionary(["O2", "PG/PHO", "NH4"], ...
+                        [3.00E-03, 0.005, 1.0E-06]), ...
+                StoichiometricCoefficients=dictionary( ...
+                        ["PG", "PHO", "O2", "IC", "NH4"], ...
+                        [-1.0, Y, -(1.0667 - 0.9301*Y), 0.4 - 0.36*Y, -0.06*Y]));
+        reactionList = [reactionList; phototrophRespiration];
+    end
     model = Model(Components=componentList, ...
                  Kappa=1.00E-06, Zeta0=1.00E+06, Zeta1=1/100, ...
                  DetachmentFunction=@(v) sqrt(v / 7.2), ...
@@ -89,4 +175,8 @@ function model = modelLund(options)
     if options.WriteFile
         save("./LundMPCModel.mat", "model");
     end
+end
+
+function opt = ternaryOpt(normalized)
+if normalized, opt = 1.0; else, opt = 1.814E-02; end
 end

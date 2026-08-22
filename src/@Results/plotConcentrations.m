@@ -16,8 +16,6 @@ for s = 1:length(sub_phases(:,2))
     component_type = sub_phases{s,1}(1);
     volume_type = sub_phases{s,1}(2);
     phase_name = sub_phases{s,2};
-
-
     names = [obj.Model.(component_type).Name];
     for i = 1:length(names)
         component_name = names(i);

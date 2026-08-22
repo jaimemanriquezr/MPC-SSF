@@ -32,7 +32,7 @@ classdef SandFilter
                 input.SandPorosity {mustBeNumeric, mustBeScalarOrEmpty} = .4;
                 input.SandRoughness {mustBeNumeric, mustBeScalarOrEmpty} = 5e-3;
                 input.InflowVelocity (1,1) {mustBeNumeric} = 0.3 * 24;
-                input.Temperature (1,1) {mustBeNumeric} = 15 + 273;
+                input.Temperature (1,1) {mustBeNumeric} = 15;   % degC (computeRate uses Celsius scale)
                 input.LightIrradiation = @(t) 0.8 * max(sin(2*pi*(t - 13/48)) + 31/50, 0) / (1 + 31/50);
                 input.LightAttenuationCoeffWater = 0.32;
                 input.LightAttenuationCoeffSand = 1500;
