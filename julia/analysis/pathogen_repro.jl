@@ -16,7 +16,7 @@
 #
 # Run:  julia --project=julia julia/analysis/pathogen_repro.jl <outdir> [ncells] [mature_days]
 
-using MPCSSF
+using SSF
 using DelimitedFiles, Printf
 
 # ---- pathogen model + srun_pathogen.m overrides ------------------------------

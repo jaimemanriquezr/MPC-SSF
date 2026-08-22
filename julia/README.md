@@ -1,4 +1,4 @@
-# MPCSSF.jl
+# SSF.jl
 
 Julia port of the MATLAB MPC-SSF code — multiphase continuum simulation of slow
 sand filtration (Diehl et al.). Lives on the local `julia-port` branch only.
@@ -16,7 +16,7 @@ Planning docs (untracked, in `../.claude/`): `julia-port-outline.md`,
 ## Layout
 
     src/
-      MPCSSF.jl              top module (include order = port order)
+      SSF.jl              top module (include order = port order)
       ecological/            Component, Particle, Liquid, Reaction
       cohesion/              CahnHilliardModel
       SandFilter.jl          geometry, grid, porosity, light, CH matrices
@@ -31,7 +31,7 @@ Planning docs (untracked, in `../.claude/`): `julia-port-outline.md`,
 
 ```julia
 julia> using Pkg; Pkg.activate("julia"); Pkg.instantiate()
-julia> Pkg.test()          # tests the active project (MPCSSF)
+julia> Pkg.test()          # tests the active project (SSF)
 ```
 
 ## Porting workflow

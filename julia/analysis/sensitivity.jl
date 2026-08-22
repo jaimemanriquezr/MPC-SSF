@@ -13,7 +13,7 @@
 # rough magnitude of influence, not global/interaction effects. Extend `PERTURB`
 # and `RUN` (horizon, seed, base case) as the study needs.
 
-using MPCSSF
+using SSF
 using Printf, DelimitedFiles
 
 # ---- base run configuration -------------------------------------------------

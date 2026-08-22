@@ -43,7 +43,7 @@ testset. To regenerate the reference or compare against a fresh MATLAB run:
    env var is set, and is skipped otherwise):
 
    ```
-   MPCSSF_GOLDEN_REF=/abs/path/to/refdir julia --project=julia -e 'using Pkg; Pkg.test()'
+   SSF_GOLDEN_REF=/abs/path/to/refdir julia --project=julia -e 'using Pkg; Pkg.test()'
    ```
 
 ## Status: validated

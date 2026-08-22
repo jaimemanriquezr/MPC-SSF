@@ -1,5 +1,5 @@
 # Plot-function generics. The real methods live in the Makie package extension
-# (ext/MPCSSFMakieExt.jl), which loads automatically when a Makie backend is
+# (ext/SSFMakieExt.jl), which loads automatically when a Makie backend is
 # imported (`using CairoMakie` or `using GLMakie`). Each returns a Makie Figure.
 #
 # The broad `args...` fallbacks below are less specific than the extension's
@@ -7,7 +7,7 @@
 # until then, calling one gives a clear hint instead of a raw MethodError.
 
 _needs_makie(fn) = error(
-    "$fn: MPCSSF plotting requires a Makie backend. Run `using CairoMakie` " *
+    "$fn: SSF plotting requires a Makie backend. Run `using CairoMakie` " *
     "(or GLMakie) to load the plotting extension, then call the plot function again.")
 
 """

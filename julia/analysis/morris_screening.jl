@@ -18,7 +18,7 @@
 # Writes julia/analysis/results/morris/{elementary_effects,mu_sigma}.csv and prints
 # a ranked table per quantity of interest.
 
-using MPCSSF
+using SSF
 using Printf, DelimitedFiles, Random, Statistics
 
 include(joinpath(@__DIR__, "proxy_model.jl"))

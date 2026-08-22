@@ -1,7 +1,7 @@
 # Render the Log-OAT sensitivity outputs (per Logarithmic_OAT_Sensitivity_SSF_model.pdf):
 #   * a horizontal bar chart of the RMS log-sensitivity I_i (OK params),
 #   * the L+_i − L0 / L−_i − L0 delta curves for the top parameters.
-# Run with the plotenv (MPCSSF dev + CairoMakie):
+# Run with the plotenv (SSF dev + CairoMakie):
 #   julia --project=<plotenv> julia/analysis/render_log_oat.jl
 using CairoMakie, DelimitedFiles
 

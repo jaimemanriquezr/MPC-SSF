@@ -21,7 +21,7 @@
 # modelLund runs clean to t=0.55, the uncapped-implicit run goes negative at ~0.47.
 # adaptive_max_dt=3e-6 sits safely below that (for ~30 cells) and still gives ~20×.
 
-using MPCSSF
+using SSF
 
 _remake_rx(r::Reaction; kw...) = Reaction(; name=r.name, (; nominal_rate=r.nominal_rate,
     temperature_correction_factor=r.temperature_correction_factor, order=r.order,

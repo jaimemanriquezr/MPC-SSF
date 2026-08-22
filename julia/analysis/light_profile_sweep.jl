@@ -17,7 +17,7 @@
 #
 # Run: julia --project=. analysis/light_profile_sweep.jl [amplitude] [tsim] [ncells]
 
-using MPCSSF, Printf, DelimitedFiles, Statistics
+using SSF, Printf, DelimitedFiles, Statistics
 include(joinpath(@__DIR__, "light_profile_model.jl"))
 
 const DELTA = 20e-3   # sand_roughness, held fixed across the sweep
@@ -32,8 +32,8 @@ preallocated tail frames as zeros at time 0.0.
 """
 function profile_qois(r, f)
     vf = get_volume_fractions(r).biofilm
-    z  = depths(r); dz = MPCSSF.gridsize(f)
-    poro = MPCSSF.computeporosity(f, z)
+    z  = depths(r); dz = SSF.gridsize(f)
+    poro = SSF.computeporosity(f, z)
     ts = times(r)
     # Frames are preallocated and filled left-to-right; on an early break the tail
     # stays zeros AT TIME 0.0. Frame 1 is legitimately t=0, so count from frame 2.

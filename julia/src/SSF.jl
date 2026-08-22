@@ -1,5 +1,5 @@
 """
-    MPCSSF
+    SSF
 
 Julia port of the MATLAB multiphase continuum model of slow sand filtration
 (MPC-SSF, Diehl et al.).
@@ -17,7 +17,7 @@ classes:
 Each unit is a stub to be filled in and validated against MATLAB reference
 output before moving to the next.
 """
-module MPCSSF
+module SSF
 
 using LinearAlgebra
 using SparseArrays
@@ -76,4 +76,4 @@ export plot_concentration, plot_concentration_heatmap, plot_volume_fractions,
        plot_velocity, plot_cfl, plot_reaction_rates
 export modelLund, simpleModel, modelPathogen
 
-end # module MPCSSF
+end # module SSF

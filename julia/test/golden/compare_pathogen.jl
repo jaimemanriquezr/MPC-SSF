@@ -13,7 +13,7 @@
 # (MATLAB) => mu = nominal; dark_respiration = 0 => identical light factor;
 # detachment sqrt(|v|/7.2) on both sides; grid addgridpoints(20) == add_cells(20).
 
-using MPCSSF
+using SSF
 using DelimitedFiles
 using Printf
 

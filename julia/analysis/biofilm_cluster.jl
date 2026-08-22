@@ -14,7 +14,7 @@
 # For the temperature-bug delta, run each with `BUGGY=1` in the env to use the
 # buggy θ^(293−T_K) form (via the identity buggy(T)=correct(40−T); see below).
 
-using MPCSSF
+using SSF
 using DelimitedFiles, Printf
 
 # ---- reconstructed biofilm model (modelLund + srun_biofilm.m overrides) -------

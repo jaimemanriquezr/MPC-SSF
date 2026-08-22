@@ -28,7 +28,7 @@
 # in results/sobol/ instead of recomputing it, which lets a run that hit a Slurm
 # wall continue in a fresh job. Resume aborts if the configuration has changed.
 
-using MPCSSF, Printf, DelimitedFiles, Statistics, Random
+using SSF, Printf, DelimitedFiles, Statistics, Random
 include(joinpath(@__DIR__, "log_oat_sensitivity.jl"))   # builders, run_proxy, build_mature, make_inflow, TD, PAT_IN
 
 struct SP; name::String; lo::Float64; hi::Float64; scale::Symbol; apply::Function; end

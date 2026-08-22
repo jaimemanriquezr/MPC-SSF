@@ -1,19 +1,19 @@
-module MPCSSFMakieExt
+module SSFMakieExt
 
-# Makie backend for MPCSSF plotting. Loads automatically when a Makie backend
-# (CairoMakie / GLMakie) is imported alongside MPCSSF. Each function returns a
+# Makie backend for SSF plotting. Loads automatically when a Makie backend
+# (CairoMakie / GLMakie) is imported alongside SSF. Each function returns a
 # Makie `Figure`; save static output with `CairoMakie.save("f.png", fig)`.
 #
 # Convention: depth z is on the y-axis, reversed so the filter surface (z=-height)
 # is at the top and increasing depth runs downward.
 
-using MPCSSF
+using SSF
 using Makie
 
 const _CMAP = :viridis
 
 # select frame indices to draw (default: all captured frames)
-_frames(r, frames) = frames === nothing ? (1:length(MPCSSF.times(r))) : frames
+_frames(r, frames) = frames === nothing ? (1:length(SSF.times(r))) : frames
 
 # add a colorbar mapping frame time -> color, over `ts`
 function _time_colorbar!(fig, ts; col=2)
@@ -30,7 +30,7 @@ function _profiles!(ax, x, z, ts, framesel)
 end
 
 # ---------------------------------------------------------------------------
-function MPCSSF.plot_concentration(r::Results, name::AbstractString, region::Symbol;
+function SSF.plot_concentration(r::Results, name::AbstractString, region::Symbol;
                                    frames=nothing, resolution=(640, 520))
     z = depths(r); ts = times(r); data = concentration(r, name, region)
     fig = Figure(size=resolution)
@@ -42,7 +42,7 @@ function MPCSSF.plot_concentration(r::Results, name::AbstractString, region::Sym
     return fig
 end
 
-function MPCSSF.plot_concentration_heatmap(r::Results, name::AbstractString, region::Symbol;
+function SSF.plot_concentration_heatmap(r::Results, name::AbstractString, region::Symbol;
                                            resolution=(640, 520))
     z = depths(r); ts = times(r); data = concentration(r, name, region)
     fig = Figure(size=resolution)
@@ -53,7 +53,7 @@ function MPCSSF.plot_concentration_heatmap(r::Results, name::AbstractString, reg
     return fig
 end
 
-function MPCSSF.plot_volume_fractions(r::Results; frame=length(times(r)), resolution=(640, 520))
+function SSF.plot_volume_fractions(r::Results; frame=length(times(r)), resolution=(640, 520))
     z = depths(r); vf = get_volume_fractions(r)
     fig = Figure(size=resolution)
     ax = Axis(fig[1, 1]; xlabel="volume fraction", ylabel="depth z (m)", yreversed=true,
@@ -65,7 +65,7 @@ function MPCSSF.plot_volume_fractions(r::Results; frame=length(times(r)), resolu
     return fig
 end
 
-function MPCSSF.plot_velocity(r::Results; frame=length(times(r)), resolution=(640, 520))
+function SSF.plot_velocity(r::Results; frame=length(times(r)), resolution=(640, 520))
     # velocities live on interior cell faces (length N-1)
     zf = r.filter.grid.boundaries[2:end-1]
     vb = r.frames[:velocity_biofilm][:, frame]
@@ -79,7 +79,7 @@ function MPCSSF.plot_velocity(r::Results; frame=length(times(r)), resolution=(64
     return fig
 end
 
-function MPCSSF.plot_cfl(r::Results; resolution=(640, 420))
+function SSF.plot_cfl(r::Results; resolution=(640, 420))
     st = r.simulation_data[:step_times]
     dt = diff(st)
     fig = Figure(size=resolution)
@@ -90,7 +90,7 @@ function MPCSSF.plot_cfl(r::Results; resolution=(640, 420))
     return fig
 end
 
-function MPCSSF.plot_reaction_rates(r::Results; frame=length(times(r)), resolution=(680, 520))
+function SSF.plot_reaction_rates(r::Results; frame=length(times(r)), resolution=(680, 520))
     z = depths(r)
     rr = reaction_rates(r)[:, frame, :]      # N × nRx
     names = reaction_names(r)

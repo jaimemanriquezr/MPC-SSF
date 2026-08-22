@@ -22,7 +22,7 @@
 # Run:  julia --project=julia julia/analysis/log_oat_sensitivity.jl [tmature] [tpost] [ncells]
 # Writes results/log_oat/{measures.csv, curves_<param>.csv, L0.csv} and a ranked table.
 
-using MPCSSF
+using SSF
 using Printf, DelimitedFiles, Statistics
 
 include(joinpath(@__DIR__, "proxy_model.jl"))       # run_proxy (implicit osmosis)

@@ -27,7 +27,7 @@
 # it requires is established and measured, but it needs a mature-biofilm state
 # that is too slow to build inside the unit suite.
 
-using MPCSSF
+using SSF
 using Test
 
 # The published potential, written out independently of the implementation so

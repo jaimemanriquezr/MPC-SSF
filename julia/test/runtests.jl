@@ -1,4 +1,4 @@
-using MPCSSF
+using SSF
 using Test
 using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
 
@@ -7,7 +7,7 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
 # Where possible, replace these with golden-master comparisons against MATLAB
 # reference outputs for SimpleModel / LundMPCModel (outline §5).
 
-@testset "MPCSSF" begin
+@testset "SSF" begin
 
     @testset "components" begin
         p = Particle(name="HET", density=1.0, attachment_sand=2.0)
@@ -520,7 +520,7 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         @test particles(m)[4].sand_attachment_factor == 0.0
 
         # The generic reaction kernel accepts the model (one order term each).
-        @test MPCSSF._reaction_kernel(m) isa NamedTuple
+        @test SSF._reaction_kernel(m) isa NamedTuple
     end
 
     @testset "pathogen reaction kinetics" begin
@@ -530,16 +530,16 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         # (μ·PAT·HET/(HET+kPred)) terms.
         m = modelPathogen()
         comps = vcat(particles(m), liquids(m))
-        kernel = MPCSSF._reaction_kernel(m)
+        kernel = SSF._reaction_kernel(m)
         mu = compute_reaction_rates(m, 20)                 # μ₂₀ = nominal at 20 °C
         @test mu[6] ≈ 0.4 && mu[7] ≈ 20.0
 
         HET, PAT = 1.0, 2.0
         X = [HET 0.0 0.5 PAT]                              # HET PHO POM PAT
         S = [0.1 0.1 0.1 0.1 0.1]                          # O2 IC NH4 HPO4 DOM
-        local_ = MPCSSF._local(X, S, kernel.num_idx, kernel.den_idx)
+        local_ = SSF._local(X, S, kernel.num_idx, kernel.den_idx)
         light = ones(1, length(mu))
-        rx = MPCSSF._evaluate_reactions(local_, kernel, [1.0], mu, light)
+        rx = SSF._evaluate_reactions(local_, kernel, [1.0], mu, light)
 
         kPred = 0.002
         @test rx[1, 6] ≈ 0.4 * PAT                                    # inactivation
@@ -570,20 +570,20 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
         # difference, so validate the formula directly.
         le = [0.0, 0.05, 0.2, 0.8]            # effective light across depth
         fdark = 0.1
-        lf = MPCSSF._light_factor_floor(le, [fdark])
+        lf = SSF._light_factor_floor(le, [fdark])
         @test vec(lf) ≈ max.(fdark, le)                  # floor form
         @test vec(lf) == [0.1, 0.1, 0.2, 0.8]            # both branches exercised
         @test vec(lf) != fdark .+ le                     # NOT the additive form
         # fdark = 0 reduces to the bare light term (and matches the old additive).
-        @test vec(MPCSSF._light_factor_floor(le, [0.0])) ≈ le
+        @test vec(SSF._light_factor_floor(le, [0.0])) ≈ le
         # one column per light-dependent reaction
-        lf2 = MPCSSF._light_factor_floor(le, [0.1, 0.3])
+        lf2 = SSF._light_factor_floor(le, [0.1, 0.3])
         @test size(lf2) == (4, 2)
         @test lf2[:, 1] ≈ max.(0.1, le) && lf2[:, 2] ≈ max.(0.3, le)
         # reproduces the full authoritative chain: I_eff·e^{1-I_eff} then floor
         ieff = 0.8 .* exp.(-[0.0, 0.5, 2.0]) ./ 1.08
         le3 = ieff .* exp.(1 .- ieff)
-        @test vec(MPCSSF._light_factor_floor(le3, [0.1])) ≈ max.(0.1, le3)
+        @test vec(SSF._light_factor_floor(le3, [0.1])) ≈ max.(0.1, le3)
     end
 
     @testset "adaptive CFL time-stepping" begin
@@ -653,11 +653,11 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
 
     # Golden-master parity vs MATLAB. Runs against the committed reference
     # (test/golden/reference/, produced by export_reference.m) by default; set
-    # MPCSSF_GOLDEN_REF to compare against a freshly exported reference instead.
+    # SSF_GOLDEN_REF to compare against a freshly exported reference instead.
     # See test/golden/README.md.
     @testset "golden-master vs MATLAB (fixed step)" begin
         include(joinpath(@__DIR__, "golden", "compare.jl"))
-        refdir = get(ENV, "MPCSSF_GOLDEN_REF", GOLDEN_DEFAULT_REF)
+        refdir = get(ENV, "SSF_GOLDEN_REF", GOLDEN_DEFAULT_REF)
         r = golden_compare(refdir; verbose=true)
         @test r.flags_agree
         @test r.match
@@ -667,7 +667,7 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
     # reference (test/golden/reference_adaptive/, from export_adaptive_reference.m).
     @testset "golden-master vs MATLAB (adaptive)" begin
         include(joinpath(@__DIR__, "golden", "compare_adaptive.jl"))
-        refdir = get(ENV, "MPCSSF_GOLDEN_ADAPTIVE_REF", GOLDEN_ADAPTIVE_REF)
+        refdir = get(ENV, "SSF_GOLDEN_ADAPTIVE_REF", GOLDEN_ADAPTIVE_REF)
         r = golden_compare_adaptive(refdir; verbose=true)
         @test r.flags_agree
         @test r.match
@@ -684,7 +684,7 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
     # water_factor. See test/golden/README.md.
     @testset "golden-master vs MATLAB (pathogen)" begin
         include(joinpath(@__DIR__, "golden", "compare_pathogen.jl"))
-        refdir = get(ENV, "MPCSSF_GOLDEN_PATHOGEN_REF", PGOLD_DEFAULT_REF)
+        refdir = get(ENV, "SSF_GOLDEN_PATHOGEN_REF", PGOLD_DEFAULT_REF)
         r = golden_compare_pathogen(refdir; verbose=true)
         @test r.flags_agree
         @test r.match
@@ -697,7 +697,7 @@ using SparseArrays   # for `sparse(::Triplets)` in the Cahn-Hilliard tests
     # is reaction-driven and masks the light-form difference). atol relaxed to
     # 1e-6 accordingly. See test/golden/README.md.
     @testset "golden-master vs MATLAB (pathogen, light+dark)" begin
-        refdir = get(ENV, "MPCSSF_GOLDEN_PATHOGEN_LIGHT_REF", PGOLD_LIGHT_REF)
+        refdir = get(ENV, "SSF_GOLDEN_PATHOGEN_LIGHT_REF", PGOLD_LIGHT_REF)
         r = golden_compare_pathogen(refdir; run_kwargs=PGOLD_LIGHT_RUN,
                                     atol=1e-6, verbose=true)
         @test r.flags_agree

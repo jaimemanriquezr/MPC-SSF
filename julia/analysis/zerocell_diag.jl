@@ -1,8 +1,8 @@
-using MPCSSF, Printf
-include("/Users/jaime/Research/SSF/MPC-SSF/julia/analysis/proxy_model.jl")
-include("/Users/jaime/Research/SSF/MPC-SSF/julia/analysis/pathogen_repro.jl")
+using SSF, Printf
+include(joinpath(@__DIR__, "proxy_model.jl"))
+include(joinpath(@__DIR__, "pathogen_repro.jl"))
 const INFL = Float64[2.68e-3,1.00e-2,0.0,5.36e-3,9.10e-3,6.23e-3,2.00e-5,0.0,1.75e-4]
-gz(f) = try; MPCSSF.gridzero(f); catch; findfirst(z->abs(z)<gridsize(f)/2, f.grid.centers); end
+gz(f) = try; SSF.gridzero(f); catch; findfirst(z->abs(z)<gridsize(f)/2, f.grid.centers); end
 f0 = SandFilter(temperature=15.0)
 @printf("sand_roughness δ=%.4g m ; sand_porosity ε0=%.3f ; domain height=%.2f depth=%.2f\n\n",
         f0.sand_roughness, f0.sand_porosity, f0.height, f0.depth)

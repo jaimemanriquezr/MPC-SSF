@@ -1,6 +1,6 @@
 # Session log — pathogen model, fast proxy, and sensitivity analysis (2026-07-21/22)
 
-Reference record of a working session on the Julia port (`MPCSSF.jl`, branch
+Reference record of a working session on the Julia port (`SSF.jl`, branch
 `julia-port`): filling the physical pathogen model from Manriquez2026, building a
 fast evaluation path (implicit osmosis), extracting reference data from Campos2006
 & Schijven2013, and setting up + running a sensitivity analysis (Logarithmic OAT +

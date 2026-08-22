@@ -4,7 +4,7 @@
 Magic-Knezev, A., Oorthuizen, W.A., Wubbels, G. (2013). "A mathematical model for removal of
 human pathogenic viruses and bacteria by slow sand filtration under variable operational
 conditions." *Water Research* 47, 2592–2602.
-Source PDF: `/Users/jaime/Research/SSF/Schijven2013.pdf` (11 pages).
+Source PDF: `/Users/jaime/Research/SSF/documents/Schijven2013.pdf` (11 pages).
 
 Organisms: bacteriophage **MS2** (model virus) and **E. coli WR1 = ECWR1** (model bacterium).
 Locations/filters: W = Weesperkarspel, L = Leiduin (Waternet); D = DUNEA; G = Groningen.

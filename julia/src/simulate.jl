@@ -65,7 +65,7 @@ end
 #
 # `light_effective` is the per-cell I_eff·e^{1-I_eff} (length nCells); `min_light`
 # is the floor per light-dependent reaction (length nLightDep). Returns an
-# nCells × nLightDep matrix. NOTE: MPC-SSF's simulate.m and older MPCSSF.jl used
+# nCells × nLightDep matrix. NOTE: MPC-SSF's simulate.m and older SSF.jl used
 # the *additive* form `max(0, min_light + light_effective)`, which double-counts
 # the baseline at high light; this floor form supersedes it (see test/golden/README.md).
 _light_factor_floor(light_effective::AbstractVector, min_light::AbstractVector) =

@@ -9,7 +9,7 @@
 #
 # The run spec MUST match export_adaptive_reference.m exactly.
 
-using MPCSSF
+using SSF
 using DelimitedFiles
 using Printf
 

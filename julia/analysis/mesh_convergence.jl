@@ -7,7 +7,7 @@
 # Run: julia --project=julia julia/analysis/mesh_convergence.jl [tmature] [tpost]
 # Writes results/mesh_convergence.csv and prints a table with successive rel-changes.
 
-using MPCSSF, Printf, DelimitedFiles, Statistics
+using SSF, Printf, DelimitedFiles, Statistics
 include(joinpath(@__DIR__, "log_oat_sensitivity.jl"))   # pathogen_model, run_proxy, challenge_inflow, INFLUENT_BASE, TD
 
 function qoi_at_mesh(ncells, tmature, tpost, nframes)

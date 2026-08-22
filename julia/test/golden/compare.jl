@@ -6,11 +6,11 @@
 #       julia --project=julia julia/test/golden/compare.jl <reference_dir>
 #   * From the test suite: runtests.jl includes this file and calls
 #     `golden_compare(refdir; verbose=true)` inside a testset when the env var
-#     MPCSSF_GOLDEN_REF points at a reference directory.
+#     SSF_GOLDEN_REF points at a reference directory.
 #
 # The run spec MUST match export_reference.m exactly.
 
-using MPCSSF
+using SSF
 using DelimitedFiles
 using Printf
 

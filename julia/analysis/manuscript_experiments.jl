@@ -14,7 +14,7 @@
 # 0.14·√(v/18) for all families (2026-08-20 decision), T nominal 15 °C
 # (seasons 19/3 °C).
 
-using MPCSSF
+using SSF
 using DelimitedFiles, Serialization, Printf, Statistics
 
 include(joinpath(@__DIR__, "pathogen_repro.jl"))   # pathogen_model()

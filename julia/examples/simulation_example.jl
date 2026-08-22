@@ -2,7 +2,7 @@
 # This is the intended end-state usage — it will not run until the solver is
 # implemented.
 
-using MPCSSF
+using SSF
 
 # Build a filter and discretize it.
 filter = SandFilter(temperature = 25 + 273)

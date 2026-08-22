@@ -3,7 +3,7 @@
 Source paper: Campos, L. C., Smith, S. R., and Graham, N. J. D. (2006).
 "Deterministic-Based Model of Slow Sand Filtration. I: Model Development."
 *Journal of Environmental Engineering*, 132(8), 872–886.
-File: `/Users/jaime/Research/SSF/Campos2006.pdf` (16 pp).
+File: `/Users/jaime/Research/SSF/documents/Campos2006.pdf` (16 pp).
 
 All CSVs were transcribed directly from the PDF (pdftotext -layout + high-res
 image rendering for verification). Every file has a header row, a `source`

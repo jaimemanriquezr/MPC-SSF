@@ -19,7 +19,7 @@
 #
 # See .claude/plans/2026-07-29-light-biofilm-profile.md.
 
-using MPCSSF
+using SSF
 
 "Component order of `INFLUENT_LIGHT`: HET, PHO, O2, IC, DOM."
 const INFLUENT_LIGHT = [1.0e-3, 1.0e-3, 1.0e-2, 1.0e-2, 1.0e-3]

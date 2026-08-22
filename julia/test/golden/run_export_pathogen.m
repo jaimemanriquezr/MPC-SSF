@@ -1,12 +1,12 @@
 % Driver: export the pathogen golden-master reference from the authoritative
 % slow-sand-filtration code. Run from anywhere:
 %
-%   matlab -batch "run('/abs/path/to/MPC-SSF/julia/test/golden/run_export_pathogen.m')"
+%   matlab -batch "run('/abs/path/to/SSF.jl/test/golden/run_export_pathogen.m')"
 %
-% Adjust the two roots below if the checkouts live elsewhere.
+% golden_dir is self-locating; adjust SSF_DIR if the checkout lives elsewhere.
 
-golden_dir = "/Users/jaime/Research/SSF/MPC-SSF/julia/test/golden";
-SSF_DIR    = "/Users/jaime/Research/SSF/slow-sand-filtration";
+golden_dir = fileparts(mfilename("fullpath"));   % this file's own directory
+SSF_DIR    = "/Users/jaime/Research/SSF/code/1d/slow-sand-filtration";
 
 cd(SSF_DIR);                      % thesis_model.mat + classes live here
 restoredefaultpath; initpath;     % put SDfilter/SDmodel/run_pathogen on the path

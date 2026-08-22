@@ -1,8 +1,8 @@
 # Run the faithful proxy (modelLund + implicit osmosis) to T=3, save all frames to
 # CSV, and render depth-vs-time profiles/heatmaps. Run with a project that has both
-# MPCSSF (dev) and CairoMakie:
+# SSF (dev) and CairoMakie:
 #   julia --project=<plotenv> julia/analysis/render_proxy_T3.jl <outdir>
-using MPCSSF, CairoMakie, DelimitedFiles, Printf
+using SSF, CairoMakie, DelimitedFiles, Printf
 
 include(joinpath(@__DIR__, "proxy_model.jl"))
 

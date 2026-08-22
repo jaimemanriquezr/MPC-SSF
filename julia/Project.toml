@@ -1,4 +1,4 @@
-name = "MPCSSF"
+name = "SSF"
 uuid = "72a1329e-ec7d-4c0b-a0f5-c46aac3128f3"
 authors = ["Jamie <jr.manriquezr@gmail.com>"]
 version = "0.1.0"
@@ -17,7 +17,7 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 
 [extensions]
-MPCSSFMakieExt = "Makie"
+SSFMakieExt = "Makie"
 
 [compat]
 Makie = "0.20, 0.21, 0.22, 0.23, 0.24"
