@@ -1,6 +1,0 @@
-source,equation,constant_name,value,units,description
-Eq7/p2595,dynamic_viscosity,A,2.414e-5,kg m-1 s-1,Prefactor in mu = A*10^(B/(273+T-C)); temperature-dependent water dynamic viscosity (Voss and Provost 2010)
-Eq7/p2595,dynamic_viscosity,B,247.8,degC,Exponent numerator in viscosity relation
-Eq7/p2595,dynamic_viscosity,C,140,-,Offset (273+T-140) in denominator of viscosity relation
-Eq6/p2595,colloid_filtration,note,NA,-,"log(Cx/C0) = (3/2)*((1-n)/dc)*alpha*eta(dp,dc,u,T,n)*x ; single-collector efficiency eta from Tufenkji and Elimelech (2004)"
-Eq10/p2599,full_ssf_model,note,NA,-,"ln(Cx/C0) = (3/2)*((1-n)/dc)*alpha*eta*x + f0*T*(1-exp(-alpha*f1*a)); Schmutzdecke term added; f0 has units m degC"

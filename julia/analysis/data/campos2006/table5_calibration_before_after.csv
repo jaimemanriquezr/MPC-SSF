@@ -1,7 +1,0 @@
-source,parameter,initial_range_min,initial_range_max,source_reference,calibrated_run1_min,calibrated_run1_max,calibrated_run2_min,calibrated_run2_max
-Table 5,E0s,0.7,0.9,Mbwette and Graham (1987),0.81,0.84,0.87,0.88
-Table 5,Ain,0.6,2.0,Campos et al. (2002),1.10,1.40,0.62,0.70
-Table 5,Fh,0.4,0.8,Chapra (1997),0.54,0.78,0.47,0.80
-Table 5,lambdaS0,100,300,Mbwette (1989),211.50,282.73,242.94,291.93
-Table 5,ksa,0.01,0.06,Bowie et al. (1985),0.01,0.03,0.02,0.05
-Table 5,krp,4.2E-04,3.0E-03,Bowie et al. (1985),6.6E-04,2.5E-03,6.5E-04,3.0E-03
