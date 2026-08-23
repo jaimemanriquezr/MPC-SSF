@@ -61,6 +61,22 @@ arguments
     % operator linear -- the lag has its own accuracy ceiling, which is exactly
     % what needs measuring. See PLANS.md, "Implicit Solver B".
     parameters.ImplicitDispersion (1,1) logical = false;
+    % Solver A's Cahn-Hilliard scheme.
+    %   "shin"  (default) the inherited Shin/Jeong/Kim semi-implicit scheme:
+    %           one linear solve, centred mobility, Psi' fully explicit.
+    %   "bailo" Bailo et al. (2023) in native (0,1) form: upwinded degenerate
+    %           mobility M(x,y) = zeta_0 (x)^+ (1-y)^+ and convex-split potential
+    %           Psi_c = Psi + a u^2/2, Psi_e = a u^2/2 with a = 3*Zeta1^2/4,
+    %           solved by semismooth Newton.
+    % Why: the "shin" scheme's mobility zeta_0*u(1-u) goes NEGATIVE once u < 0, so
+    % a free-running Solver A turns diffusion into anti-diffusion and blows up
+    % (measured: u < 0 at t = 2.15e-05 d, NaN by t = 0.163 d at N=100). The (x)^+
+    % in Bailo's mobility cannot. That matters for the component-elimination design,
+    % which needs Solver A's phi_b to be trustworthy over a whole run.
+    % CAVEAT: Bailo's boundedness proof assumes a pure conservation law. We add
+    % convection and a reaction source, so the proof does not strictly transfer --
+    % run with RecordCflBudget to measure whether u actually stays in [0,1].
+    parameters.CohesionScheme (1,1) string = "shin";
 end
 if ~isempty(options)
     for field = string(fieldnames(options)).'
@@ -152,6 +168,9 @@ sigmaParticles = model.StoichiometricMatrixParticles;
 sigmaLiquids = model.StoichiometricMatrixLiquids;
 
 dpsi_fun = model.CohesionSubModel.PotentialGradient;
+kappaCH = model.CohesionSubModel.Kappa;
+zeta1CH = model.CohesionSubModel.Zeta1;
+bailoIters = 0; bailoSteps = 0;
 zeta_0 = model.CohesionSubModel.Zeta0;
 mobility = model.CohesionSubModel.MobilityFunction;
 
@@ -475,17 +494,34 @@ while t < timeStart + simulationTime
 
     lambda = zeta_0*mobility(uB);
     if parameters.PositiveMobility, lambda = max(lambda, 0); end
+    useBailo = parameters.CohesionScheme == "bailo";
     lhsCH = CH0 - dt*(S + sparse(D.Rows, D.Columns, D.Values.*(lambda).', 2*n0, 2*n0));
     rhsCH = [u + dt*rhsBiofilmVolume(1:n0); dpsi_fun(u)];
 
     % solving linear system
-    xCH = lhsCH \ rhsCH;
-    % uCH = xCH(1:n0);
-    muCH = xCH(n0+1:end);
+    if useBailo
+        % ---- Bailo (2023) in native (0,1) form, semismooth Newton -----------
+        % Solves the SAME equation as the "shin" branch -- convection S, source
+        % rhsBiofilmVolume, potential Psi, interfacial kappa -- but with the
+        % cohesive flux written as Bailo Eq. (2.1b):
+        %     F_{i+1/2} = M(u_i,u_{i+1})(v)^+ + M(u_{i+1},u_i)(v)^-
+        %     M(x,y)    = zeta_0 (x)^+ (1-y)^+ ,   v_{i+1/2} = -(mu_{i+1}-mu_i)/dz
+        % and Psi split convex/concave, Psi_c implicit and Psi_e explicit.
+        % The (x)^+ is the whole point: it cannot go negative, so the
+        % anti-diffusion blow-up of the centred mobility is structurally excluded.
+        aSplit = 3*zeta1CH^2/4;      % convexity deficit of Psi; see PLANS.md
+        [uCH, muCH, bailoIt] = solveBailoCH(u, dt, dz, zeta_0, kappaCH, aSplit, ...
+            dpsi_fun, S, rhsBiofilmVolume(1:n0), n0);
+        bailoIters = bailoIters + bailoIt; bailoSteps = bailoSteps + 1;
+    else
+        xCH = lhsCH \ rhsCH;
+        uCH = xCH(1:n0);
+        muCH = xCH(n0+1:end);
+    end
     if parameters.RecordCflBudget
         % (a) Solver A's own phi_b for THIS step, normally discarded. Re-seeded
         % from Solver B every step, so this measures local (one-step) consistency.
-        uCHrec = xCH(1:n0);
+        uCHrec = uCH;
 
         % (b) The same operator run in PARALLEL, seeded once and never re-seeded.
         % Its own state sets its own mobility, so it is a genuinely independent
@@ -498,10 +534,18 @@ while t < timeStart + simulationTime
         uBpar = .5*(uPar(2:end) + uPar(1:end-1));
         lambdaPar = zeta_0*mobility(uBpar);
         if parameters.PositiveMobility, lambdaPar = max(lambdaPar, 0); end
+        % The free-running state must use the SAME scheme, or the diagnostic
+        % measures the wrong solver.
+        if useBailo && ~parDiag.dead
+            uPar = solveBailoCH(uPar, dt, dz, zeta_0, kappaCH, 3*zeta1CH^2/4, ...
+                dpsi_fun, S, rhsBiofilmVolume(1:n0), n0);
+        end
         lhsPar = CH0 - dt*(S + sparse(D.Rows, D.Columns, D.Values.*(lambdaPar).', 2*n0, 2*n0));
         if ~parDiag.dead
-            xPar = lhsPar \ [uPar + dt*rhsBiofilmVolume(1:n0); dpsi_fun(uPar)];
-            uPar = xPar(1:n0);
+            if ~useBailo
+                xPar = lhsPar \ [uPar + dt*rhsBiofilmVolume(1:n0); dpsi_fun(uPar)];
+                uPar = xPar(1:n0);
+            end
             % Record WHERE it first leaves the physical range, not just how far
             % it ends up: the failure mode is the point, since a mobility
             % zeta_0*u(1-u) that goes negative turns diffusion into
@@ -932,4 +976,89 @@ Id = speye(nC);
 for j = 1:size(g, 2)
     g(:, j) = (Id + alpha(j)*Base) \ g(:, j);
 end
+end
+
+function [u1, mu, iters] = solveBailoCH(u0, dt, dz, zeta0, kappa, aSplit, dpsi, S, src, n0)
+% SOLVEBAILOCH  Bailo et al. (2023) Cahn-Hilliard step, native (0,1) form.
+%
+%   (u1 - u0)/dt + (F_{i+1/2} - F_{i-1/2})/dz = S*u1 + src
+%   F_{i+1/2} = M(u_i,u_{i+1})(v)^+ + M(u_{i+1},u_i)(v)^-       Bailo (2.1b)
+%   M(x,y)    = zeta0 (x)^+ (1-y)^+                             (2.1d), mapped
+%   v_{i+1/2} = -(mu_{i+1} - mu_i)/dz                           (2.1c)
+%   mu        = Psi_c'(u1) - Psi_e'(u0) - kappa*Lap(u1)         (2.1e)
+%   Psi_c = Psi + a u^2/2,  Psi_e = a u^2/2
+%
+% VARIABLE. Bailo works on phi in [-1,1]; this is the native (0,1) form under
+% phi = 2u - 1, for which M0 = zeta0, eps^2 = kappa/4 and H(phi) = Psi((1+phi)/2).
+% Written natively so no data is ever transformed -- the factor bookkeeping in
+% that map is easy to get wrong (see PLANS.md).
+%
+% WHY THE (x)^+ MATTERS. The inherited scheme's centred mobility zeta0*u(1-u)
+% turns negative the moment u does, flipping diffusion to anti-diffusion; a
+% free-running Solver A then blows up (u<0 at t=2.15e-05 d, NaN by 0.163 d).
+% (x)^+ cannot go negative, so that mode is structurally excluded.
+%
+% CAVEAT, stated plainly: Bailo's boundedness proof assumes a pure conservation
+% law. S (convection) and src (reactions) are present here, so the proof does NOT
+% strictly transfer and bounds must be MEASURED, not assumed.
+%
+% Semismooth Newton: the residual is non-smooth through (v)^+/(v)^- and the
+% clippings, so active sets are frozen per iterate and one-sided derivatives used.
+
+TOL = 1e-10; MAXIT = 50;
+e  = ones(n0,1);
+Lap = spdiags([e, -2*e, e], -1:1, n0, n0);
+Lap(1,1) = -1; Lap(n0,n0) = -1;            % ghost u_0=u_1, u_{n0+1}=u_{n0}: (2.1i)
+Lap = Lap/dz^2;
+em = ones(n0-1,1);
+Dface = spdiags([-em, em], [0 1], n0-1, n0)/dz;          % cells -> faces
+Div   = spdiags([-e, e], [-1 0], n0, n0-1)/dz;           % faces -> cells, no-flux
+Sblk  = S(1:n0, 1:n0);                                    % convection on u
+
+w = u0;  iters = MAXIT;
+psiE = aSplit*u0;                                          % Psi_e'(u0), explicit
+for k = 1:MAXIT
+    [R, A, ~, vp, vm] = bres(w);
+    if norm(R, inf) < TOL/max(dt, realmin), iters = k-1; break, end
+    dmu  = spdiags(dpsiPrime(w) + aSplit, 0, n0, n0) - kappa*Lap;
+    dV   = -Dface*dmu;
+    wi = w(1:end-1); wj = w(2:end);
+    dMp_i =  zeta0*double(wi > 0).*max(1 - wj, 0);
+    dMp_j = -zeta0*max(wi, 0).*double(1 - wj > 0);
+    dMm_j =  zeta0*double(wj > 0).*max(1 - wi, 0);
+    dMm_i = -zeta0*max(wj, 0).*double(1 - wi > 0);
+    rr = (1:n0-1)';
+    dMp = sparse([rr; rr], [rr; rr+1], [dMp_i; dMp_j], n0-1, n0);
+    dMm = sparse([rr; rr], [rr; rr+1], [dMm_i; dMm_j], n0-1, n0);
+    dF  = spdiags(vp, 0, n0-1, n0-1)*dMp + spdiags(vm, 0, n0-1, n0-1)*dMm ...
+        + spdiags(A,  0, n0-1, n0-1)*dV;
+    J = speye(n0)/dt + Div*dF - Sblk;
+    d = -(J \ R);
+    lam = 1; r0 = norm(R, inf);                            % backtracking
+    for ls = 1:20
+        if norm(bres(w + lam*d), inf) < (1 - 1e-4*lam)*r0, break, end
+        lam = lam/2;
+    end
+    w = w + lam*d;
+end
+u1 = w;
+[~, ~, ~, ~, ~, mu] = bres(w);
+
+    function [R, A, vf, vp, vm, mu] = bres(v)
+        mu = dpsi(v) + aSplit*v - psiE - kappa*(Lap*v);
+        vf = -Dface*mu;
+        vp = max(vf, 0);  vm = min(vf, 0);
+        Mp = zeta0*max(v(1:end-1), 0).*max(1 - v(2:end),   0);
+        Mm = zeta0*max(v(2:end),   0).*max(1 - v(1:end-1), 0);
+        F  = Mp.*vp + Mm.*vm;
+        A  = Mp.*(vf >= 0) + Mm.*(vf < 0);
+        R  = (v - u0)/dt + Div*F - Sblk*v - src;
+    end
+
+    function d = dpsiPrime(v)
+        % d/du of Psi'(u) = u^2(u - 1.5*zeta1). Recovered by differencing so this
+        % stays correct if the preset's PotentialGradient handle ever changes.
+        h = 1e-7;
+        d = (dpsi(v + h) - dpsi(v - h))/(2*h);
+    end
 end
