@@ -111,17 +111,48 @@ phiW          += (dt/dz)(fluxIn - fluxOut)/porosity + dt*rhsEnclosedWater
 At N = 500: 1002 cells, 23 unknowns per cell (biofilm 13 = matrix 4 + enclosed particles 4 +
 enclosed liquids 5; flowing 9; enclosed water 1), **23046 total**.
 
-**The decisive structural fact: spatial coupling enters ONLY through the fluxes.** Reactions
-and exchange are entirely cell-local. So the problem splits cleanly:
+**Spatial coupling enters only through the fluxes**; reactions and exchange are entirely
+cell-local. So the problem splits as follows -- but see the correction below on what the
+dispersion row really depends on:
 
 | part | structure | cost |
 |---|---|---|
-| dispersion (flowing only) | tridiagonal, components uncoupled | 9 tridiagonal solves of size 1002 |
+| dispersion (flowing only) | tridiagonal per component **only if phiFlowing is lagged** (see below) | 9 tridiagonal solves of size 1002 |
 | advection (all blocks) | bidiagonal (upwind), components uncoupled | trivial |
 | reactions + exchange | dense but LOCAL, 23x23 | 1002 independent small solves |
 
 A fully coupled 23046 x 23046 implicit solve would be a serious build; the split makes it
 routine. Nothing here needs a global nonlinear solve.
+
+### CORRECTION (2026-08-23): flowing components DO couple through dispersion
+
+An earlier version of this entry claimed "components do not couple through dispersion, so
+this is one tridiagonal solve per component". That is wrong as stated. Dispersion acts on the
+LOCAL concentration `g ./ phiFlowing`, and (`simulate.m:337-340`)
+
+    phiMatrix   = sum(globalMatrix,2)/densityP;
+    phiEnclosed = phiW + sum(globalEnclosedP,2)/densityP + sum(globalEnclosedL,2)/densityL;
+    phiBiofilm  = phiMatrix + phiEnclosed;
+    phiFlowing  = 1 - phiBiofilm;
+
+so `phiFlowing` is one minus a **sum over all 13 biofilm-block components plus enclosed
+water**. What is actually true:
+
+- At FIXED `phiFlowing`, flowing component j does not see flowing component k. The 9
+  independent tridiagonals are therefore valid **only because `phiFlowing` is lagged**.
+- A genuinely implicit dispersion couples the flowing block to all 14 biofilm-block unknowns
+  per cell, giving a block-banded system of 23 per cell -- not 9 scalar tridiagonals. The
+  cheap structure is a property of the LAG, not of the operator.
+
+**Why this matters beyond bookkeeping.** The sensitivity of the operator to the lagged
+quantity is `d(1/phi_f)/d phi_f = -1/phi_f^2`. At `phi_f ~ 0.86` (supernatant, phi_b ~ 0.14)
+that is ~1.35 and harmless. As the filter clogs, `phi_f -> 0` and it **diverges**, so the lag
+degrades exactly in the regime the schmutzdecke work is about, and it compounds the
+conditioning problem in blocker 7. This is a plausible mechanism for the predicted 14.5x
+either failing to appear or appearing early in a run and breaking late.
+
+Worth measuring directly: track `max(1/phi_f^2 * |d phi_b/dt| * dt)` over a run as a proxy for
+the per-step error the lag introduces, and check whether it grows toward the end.
 
 ### What it is worth, from Phase 0 measurements (not estimates)
 
@@ -179,8 +210,9 @@ It is a precedent for the pattern and for gating it behind a default-false optio
 
 ### Suggested order
 
-1. Implicit dispersion only, behind an option, velocities lagged. Linear, tridiagonal,
-   9 solves. **Measure the achieved dt against the predicted 14.5x** -- if it falls short, the
+1. Implicit dispersion only, behind an option, velocities AND `phiFlowing` lagged. Linear,
+   tridiagonal, 9 solves -- cheap only because of that lag, per the correction above.
+   **Measure the achieved dt against the predicted 14.5x** -- if it falls short, the
    lag in (3)/(5) is why, and that is worth knowing before any further work.
 2. Implicit reactions + exchange, local semismooth Newton reusing the Bailo Jacobian pattern.
 3. Implicit advection only if 1/24 d is still wanted after seeing what (1) and (2) give, and

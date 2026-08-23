@@ -848,8 +848,16 @@ function g = solveImplicitDispersion(g, S, alpha, phiFlowing, poroB, poroC, dz, 
 % diag(1./phiFlowing) belongs inside the operator. phiFlowing and S are lagged,
 % which is what keeps this linear.
 %
-% Components are uncoupled and only alpha differs between them, so the operator
-% is assembled once and rescaled per component. Tridiagonal.
+% Components are uncoupled ONLY BECAUSE phiFlowing is lagged. phiFlowing is
+% 1 - phiBiofilm and phiBiofilm sums all 13 biofilm-block components plus
+% enclosed water (:337-340), so a genuinely implicit dispersion would couple the
+% flowing block to 14 further unknowns per cell -- a block-banded 23-per-cell
+% system, not 9 scalar tridiagonals. Under the lag only alpha differs between
+% components, so the operator is assembled once and rescaled. Tridiagonal.
+%
+% The lag's error scales as d(1/phi_f)/dphi_f = -1/phi_f^2, which is ~1.35 at
+% phi_f ~ 0.86 but DIVERGES as the filter clogs and phi_f -> 0. Expect this
+% treatment to degrade late in a clogging run.
 nC = size(g, 1);
 if nC < 3, return, end
 
