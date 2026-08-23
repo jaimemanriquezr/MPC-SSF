@@ -217,3 +217,74 @@ It is a precedent for the pattern and for gating it behind a default-false optio
 2. Implicit reactions + exchange, local semismooth Newton reusing the Bailo Jacobian pattern.
 3. Implicit advection only if 1/24 d is still wanted after seeing what (1) and (2) give, and
    with the accuracy cost quantified first.
+
+### Sketch: dispersion without the phiFlowing lag
+
+Two levels. **The cheap one is probably sufficient and should be tried first.**
+
+#### Level A — use phi_f^{n+1}, which is already available. No lag, no extra cost.
+
+The biofilm block carries **no dispersion at all** (`w_a = [0 0 0, ...]`, `simulate.m:562`;
+`fluxBiofilm` is pure upwind advection). And in the present scheme every source and flux for
+that block is evaluated at time n. Therefore
+
+    globalBiofilm^{n+1}  and  phiW^{n+1}   are fully determined by time-n data,
+
+so `phi_f^{n+1} = 1 - phiBiofilm^{n+1}` is **computable before the flowing solve**. Reordering
+the step to
+
+    1. advance globalBiofilm and phiW explicitly      -> phi_f^{n+1} known
+    2. solve the flowing dispersion implicitly USING phi_f^{n+1}
+
+removes the phi_f lag entirely, keeps 9 independent tridiagonals, and costs nothing. This is
+not "fully implicit", but it eliminates the specific approximation that worried us.
+
+What remains lagged at level A is `S_f = |v_f| * phi_f^face`, because `velFlowing` depends on
+`velBiofilm` from Solver A. The `phi_f^face` half can also be taken at n+1; only `|v_f|`
+genuinely needs Solver A.
+
+#### Level B — genuinely implicit, needed only if the biofilm block also goes implicit
+
+Write the per-cell state as `y` (14: 13 biofilm columns + enclosed water) and `g` (9 flowing).
+`phi_f` enters as an **affine functional of y**:
+
+    phi_f = 1 - a' y,     a = [1/rho_P (x8 particle cols), 1/rho_L (x5 liquid cols), 1 (water)]
+
+The dispersive flux is
+
+    F_face = |v_f| * phi_f^face * alpha_j * ( g_+/phi_f+ - g_-/phi_f- ) / dz
+
+**Key structure: y enters ONLY through the scalar phi_f.** So the coupling of the dispersion
+block to all 14 biofilm unknowns is **rank one per cell**. The clean formulation introduces
+`phi_f` as one auxiliary unknown per cell with the linear constraint `phi_f + a'y = 1`,
+reducing the dispersion system from 23 to **10 unknowns per cell** (9 flowing + 1).
+
+Newton pieces:
+
+    d(1/phi_f)/dy_k = + a_k / phi_f^2          (since d phi_f/dy_k = -a_k)
+    dc_{i,j}/dy_k   = g_{i,j} * a_k / phi_f^2
+
+so `dDISP/dy = (column vector depending on g) * a'` -- rank one, and cheaply handled by
+Sherman-Morrison or by carrying the auxiliary unknown. The `dDISP/dg` block is exactly the
+tridiagonal already implemented, with `1/phi_f` inside.
+
+Cost: block-tridiagonal with 10x10 blocks over ~1002 cells per Newton iteration, versus 9
+scalar tridiagonals at level A. Perhaps 5-10x level A per iteration, times 2-4 iterations.
+
+#### Correction to the sensitivity estimate given earlier
+
+The earlier note said the lag error scales as `-1/phi_f^2` and diverges as the filter clogs.
+That overstates it, because `dispersionStrength` already carries a factor `phi_f`:
+
+    dispersionStrength = abs(velFlowing) .* (1 - phiBiofilmBoundaries)      % == phi_f at faces
+
+so with `phi_+ = phi + delta/2`, `phi_- = phi - delta/2`, `phi_face ~ phi`,
+
+    F ~ |v_f| * alpha * [ (g_+ - g_-) - (g/phi_f) * delta ] / dz,     delta = grad(phi_f)*dz
+
+The leading term is **phi_f-independent** -- the `phi_f^face` multiplying and the `1/phi_f`
+dividing largely cancel. The residual sensitivity is `~ g * grad(phi_f) / phi_f`, i.e. first
+order in `1/phi_f` and proportional to the GRADIENT of `phi_f`, not to `phi_f` itself. So the
+lag is harmless wherever `phi_f` is smooth, and only bites where it is both small and steep --
+the schmutzdecke front. Still worth avoiding, but level A avoids it for free, and the earlier
+`1/phi_f^2` claim was too pessimistic.
