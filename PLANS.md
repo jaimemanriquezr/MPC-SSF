@@ -341,3 +341,34 @@ them is not that they backfire, it is that 1.25x at N=1615 is a poor return on a
 79% at N=1615. Implicit upwind advection is bidiagonal and structurally simpler than
 reactions. The obstacle there is accuracy, not implementation -- `dz/q` at N=1615 is
 8.6e-05 d, and exceeding it smears the transport.
+
+### CLOSED: implicit Solver B is stage 1 only
+
+Decision 2026-08-23, Jaime: *"explicit advection is fine, dt ~ 1/dz is tolerable."*
+
+That settles the three-stage plan above:
+
+| stage | verdict |
+|---|---|
+| 1. implicit dispersion | **BUILT.** Removes the dz^-2 term -- the intolerable one. 2.85x steps / 1.87x wall at N=200, accuracy 1.56e-06. |
+| 2. implicit reactions | **NOT WORTH BUILDING.** Diminishing: 2.93x at N=200, 1.80x at N=500, 1.25x at N=1615, for 1002 per-cell 23x23 semismooth Newton solves per step over a non-smooth Liebig min. |
+| 3. implicit advection | **NOT NEEDED.** dt ~ dz accepted. |
+
+With dt ~ dz, cost scales as N^2, and implicit dispersion contributes a 1.87x wall gain at
+fixed N:
+
+| target | cost vs today's N=500 explicit |
+|---|---|
+| N=500, kappa=1e-6 (current) | 0.5x |
+| N=800 | 1.4x |
+| **N=1615, kappa=1e-7 RESOLVED (dz/ell = 1.00)** | **5.6x** |
+
+**Consequence worth acting on: the PUBLISHED kappa = 1e-7 is now affordable at a genuinely
+resolved mesh.** Previously N=1615 cost ~34x an N=500 run (N^3 under explicit dispersion),
+which is why kappa=1e-6 at N=500 was recommended instead. At 5.6x it is a routine cluster
+job, so the manuscript need not defend a 10x change in kappa. Advective CFL there is
+dz/q = 8.6e-05 d = 7 s.
+
+Remaining open item, if dt ever becomes painful again: advection is 79% of the binding sum
+by N=1615, and implicit upwind advection is bidiagonal -- structurally simpler than
+reactions. The obstacle is accuracy (exceeding dz/q smears transport), not implementation.
