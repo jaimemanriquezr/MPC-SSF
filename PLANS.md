@@ -344,7 +344,9 @@ reactions. The obstacle there is accuracy, not implementation -- `dz/q` at N=161
 
 ### CLOSED: implicit Solver B is stage 1 only
 
-Decision 2026-08-23, Jaime: *"explicit advection is fine, dt ~ 1/dz is tolerable."*
+Decision 2026-08-23, Jaime: *"explicit advection is fine, dt ~ dz is tolerable."*
+(As spoken this was "dt ~ 1/dz", corrected immediately after; the advective CFL is
+dt <= dz/q, so dt is PROPORTIONAL to dz. All the analysis below already used dt ~ dz.)
 
 That settles the three-stage plan above:
 
@@ -359,9 +361,14 @@ fixed N:
 
 | target | cost vs today's N=500 explicit |
 |---|---|
-| N=500, kappa=1e-6 (current) | 0.5x |
-| N=800 | 1.4x |
-| **N=1615, kappa=1e-7 RESOLVED (dz/ell = 1.00)** | **5.6x** |
+| N=500, kappa=1e-6 (current) | 0.20x |
+| N=800 | 0.51x |
+| **N=1615, kappa=1e-7 RESOLVED (dz/ell = 1.00)** | **2.1x** |
+
+(Updated once N=500 was measured. The first version of this table used the N=200 wall gain of
+1.87x; the measured N=500 gain is **4.97x**, because the per-step tridiagonal overhead is
+roughly fixed and so dilutes as the mesh grows. N=1615 is therefore ~2.1x a current N=500
+run, not 5.6x.)
 
 **Consequence worth acting on: the PUBLISHED kappa = 1e-7 is now affordable at a genuinely
 resolved mesh.** Previously N=1615 cost ~34x an N=500 run (N^3 under explicit dispersion),
@@ -372,3 +379,31 @@ dz/q = 8.6e-05 d = 7 s.
 Remaining open item, if dt ever becomes painful again: advection is 79% of the binding sum
 by N=1615, and implicit upwind advection is bidiagonal -- structurally simpler than
 reactions. The obstacle is accuracy (exceeding dz/q smears transport), not implementation.
+
+### Measured: implicit dispersion at N=500, 3 d — 7.11x, and the crossover confirmed
+
+Job 3531640 task 2, production regime:
+
+| | N=200 | **N=500** |
+|---|---|---|
+| steps | 302170 -> 106116, 2.85x | 1448486 -> 203600, **7.11x** |
+| wall | 234 -> 125 s, 1.87x | 2289 -> 460 s, **4.97x** |
+| accuracy vs explicit, common dt | 1.56e-06 | 6.10e-05 |
+| binds now | enclosed L, 72% | **enclosed L, 92%** |
+| `w_v/dz` : `w_b` : `w_s` | 0.32 : 0.02 : 0.66 | **0.53 : 0.01 : 0.46** |
+
+**7.11x against the 7.43x projected** -- within 4%. The projection method had looked unreliable
+after N=200 came in at 2.85x against a projected 4.97x, but it holds at the mesh that matters.
+
+**The advection/reaction crossover is confirmed and lands where predicted.** From the N=200
+shares the crossover was projected at N ~ 407; at N=500 `w_v/dz` = 0.53 now exceeds
+`w_s` = 0.46. A forward prediction from independent data, which validates the scaling table
+used for the kappa=1e-7 costing.
+
+Consequence: **reactions are NOT the stiffest term at production resolution.** They were at
+N=200; at N=500 advection is. Implicit reactions would buy ~1.8x here and less under
+refinement -- confirming they are not worth building.
+
+Accuracy caveat unchanged: 6.10e-05 is 40x the N=200 figure, and this run PREDATES the level-A
+reordering, so part of it may be the phi_f lag rather than the splitting. Separate the two
+before relying on this at N=1615.
