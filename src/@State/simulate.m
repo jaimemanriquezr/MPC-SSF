@@ -52,6 +52,15 @@ arguments
     % zeta_0*(x)^+ (1-y)^+ -- it removes negative mobility but carries no
     % bound-preservation proof.
     parameters.PositiveMobility (1,1) logical = false;
+    % Treat the flowing-phase dispersive flux implicitly. Phase 0 measured
+    % dispersion at 94% of the binding region's sum at N=500 with the matrix
+    % region's margin at 0.0688, so this is worth at most ~14.5x on dt; after it,
+    % advection binds at dz/q = 2.78e-04 d. Components do not couple through
+    % dispersion, so this is one tridiagonal solve per component. The dispersion
+    % coefficient (|v_f|, phi_b) and phiFlowing are LAGGED, which keeps the
+    % operator linear -- the lag has its own accuracy ceiling, which is exactly
+    % what needs measuring. See PLANS.md, "Implicit Solver B".
+    parameters.ImplicitDispersion (1,1) logical = false;
 end
 if ~isempty(options)
     for field = string(fieldnames(options)).'
@@ -547,9 +556,13 @@ while t < timeStart + simulationTime
         ws_t0 = max(abs(sigmaParticles(1,3))*muRates(3), abs(sigmaParticles(2,4))*muRates(4));
 
         w_v = [2*vbmax*[1 1 1], 2*vfmax*[1 1]];
-        w_a = [0 0 0, ...
-               2*vfmax*alphaP*(1 + 1/(1 - maxPhib)), ...
-               2*vfmax*alphaL*(1 + 1/(1 - maxPhib))];
+        if parameters.ImplicitDispersion
+            w_a = zeros(1,5);      % solved implicitly, so out of the CFL bound
+        else
+            w_a = [0 0 0, ...
+                   2*vfmax*alphaP*(1 + 1/(1 - maxPhib)), ...
+                   2*vfmax*alphaL*(1 + 1/(1 - maxPhib))];
+        end
         w_b = [max(det_vf), ...
                max(attachmentRates)*max(attachmentEnclosedFactor) + max(transportParticleRates)/beta, ...
                max([max(transportLiquidRates)/beta, ...
@@ -634,7 +647,11 @@ while t < timeStart + simulationTime
         volumeAvgVelocity(end)*globalFlowing(end, :)
         ];
 
-    fluxFlowing = convectionFlux - dispersionFlux;
+    if parameters.ImplicitDispersion
+        fluxFlowing = convectionFlux;          % dispersion applied after the update
+    else
+        fluxFlowing = convectionFlux - dispersionFlux;
+    end
     fluxFlowingIn = porosityBoundaries(1:end-1).*fluxFlowing(1:end-1,:);
     fluxFlowingOut = porosityBoundaries(2:end).*fluxFlowing(2:end,:);
 
@@ -651,6 +668,10 @@ while t < timeStart + simulationTime
     %======================= VI. MAIN: update cell values =================================%
     globalBiofilm = globalBiofilm + (dt/dz)*(fluxBiofilmIn - fluxBiofilmOut)./porosityCenters + dt*rhsBiofilm;
     globalFlowing = globalFlowing + (dt/dz)*(fluxFlowingIn - fluxFlowingOut)./porosityCenters + dt*rhsFlowing;
+    if parameters.ImplicitDispersion
+        globalFlowing = solveImplicitDispersion(globalFlowing, dispersionStrength, ...
+            alpha, phiFlowing, porosityBoundaries, porosityCenters, dz, dt);
+    end
     if parameters.ImplicitOsmosis
         rhsEnclosedWaterB = rhsEnclosedWater./(1 + dt*kosm);
     else
@@ -812,3 +833,42 @@ function names = limitationNames(model, numIdx, denIdx)
     end
 end
 
+
+function g = solveImplicitDispersion(g, S, alpha, phiFlowing, poroB, poroC, dz, dt)
+% Backward-Euler the flowing-phase dispersive flux.
+%
+% Explicit form being replaced (see the FLUX COMPUTING block):
+%   dispFlux_f = S_{f-1} * alpha_j * (c_f - c_{f-1}) / dz,   c = g ./ phiFlowing
+%   g <- g + (dt/dz)*(poroB_l*flux_l - poroB_r*flux_r)/poroC,  flux = conv - disp
+% so the dispersive contribution to the update is -DISP(g) with
+%   DISP(g) = (dt/dz)*(poroB_l*dispFlux_l - poroB_r*dispFlux_r)/poroC,
+% and taking it at n+1 gives (I + DISP)g^{n+1} = <explicit part>, already in g.
+%
+% Dispersion acts on the LOCAL concentration g./phiFlowing, not on g, so the
+% diag(1./phiFlowing) belongs inside the operator. phiFlowing and S are lagged,
+% which is what keeps this linear.
+%
+% Components are uncoupled and only alpha differs between them, so the operator
+% is assembled once and rescaled per component. Tridiagonal.
+nC = size(g, 1);
+if nC < 3, return, end
+
+% cells -> faces: face f carries -/+ S(f-1)/dz at cells f-1, f, for f = 2..nC-1.
+% Faces 1, nC, nC+1 carry no dispersive flux, matching the zero rows of
+% dispersionFlux in the explicit branch.
+f = (2:nC-1)';
+Gr = sparse([f; f], [f-1; f], [-S(:)/dz; S(:)/dz], nC+1, nC);
+
+% faces -> cells: left face i with weight poroB(i), right face i+1 with poroB(i+1)
+i = (1:nC)';
+SelL = sparse(i, i,   poroB(1:nC),   nC, nC+1);
+SelR = sparse(i, i+1, poroB(2:nC+1), nC, nC+1);
+
+Base = spdiags((dt/dz)./poroC(:), 0, nC, nC) * (SelL - SelR) * Gr * ...
+       spdiags(1./phiFlowing(:), 0, nC, nC);
+
+Id = speye(nC);
+for j = 1:size(g, 2)
+    g(:, j) = (Id + alpha(j)*Base) \ g(:, j);
+end
+end
