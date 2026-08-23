@@ -129,6 +129,56 @@ out = fullfile(opts.OutDir, sprintf("fig6_scheme_values_n%d.png", opts.NCells));
 exportgraphics(fig, out, Resolution=200);
 fprintf("\nwrote %s\n", out);
 
+% ---------- per-component profiles and v_b ----------------------------------
+% phi_b is a sum, so agreement there can hide cancelling per-component errors.
+% Plot each component separately, and v_b, which is the ONLY thing Solver A hands
+% to Solver B and therefore the channel through which the CH scheme can act.
+parts = [R{1}.Model.Particles.Name];  liqs = [R{1}.Model.Liquids.Name];
+panels = [ compose("%s|Matrix", parts), compose("%s|Flowing", liqs), "Water|Enclosed" ];
+np = numel(panels);
+fig2 = figure(Position=[60 60 1250 780]);
+tl2 = tiledlayout(fig2, 3, ceil((np+1)/3), TileSpacing="compact", Padding="compact");
+devC = nan(1, np);
+for i = 1:np
+    pp = split(panels(i), "|"); nm = pp(1); ph = pp(2);
+    nexttile; hold on
+    xa = R{1}.Frames.Concentrations{nm, ph}{1};
+    for k = 1:numel(R)
+        xk = R{k}.Frames.Concentrations{nm, ph}{1};
+        plot(xk(:,end), z, Color=cols(k,:), LineWidth=lw(k), LineStyle=ls(k), ...
+             DisplayName=names(k));
+    end
+    xc = R{end}.Frames.Concentrations{nm, ph}{1};
+    den = max(abs(xa(:,end)));
+    if den > 0, devC(i) = max(abs(xc(:,end) - xa(:,end)))/den; end
+    set(gca, YDir="reverse"); yline(0, "k:", HandleVisibility="off");
+    title(sprintf("%s / %s   (C-A %.1e)", nm, ph, devC(i)), FontSize=9);
+    xlabel("[kg/m^3]"); if mod(i-1, ceil((np+1)/3)) == 0, ylabel("z [m]"); end
+    grid on; box on
+end
+
+nexttile; hold on                                   % v_b, Solver A's only output
+zf = f.GridPoints.Boundaries(2:end-1);
+for k = 1:numel(R)
+    vb = R{k}.Frames.Velocity.Biofilm;
+    plot(vb(:,end), zf, Color=cols(k,:), LineWidth=lw(k), LineStyle=ls(k), ...
+         DisplayName=names(k));
+end
+set(gca, YDir="reverse"); yline(0, "k:", HandleVisibility="off"); xline(0, "k:", HandleVisibility="off");
+xlabel("v_b [m/d]"); title("v_b -- Solver A's only output", FontSize=9);
+legend(Location="best", FontSize=7); grid on; box on
+title(tl2, sprintf("Per-component profiles at t = %.0f d (N = %d, \kappa = %g)", ...
+    opts.Days, opts.NCells, opts.Kappa));
+out2 = fullfile(opts.OutDir, sprintf("fig7_components_n%d.png", opts.NCells));
+exportgraphics(fig2, out2, Resolution=200);
+fprintf("wrote %s\n", out2);
+
+fprintf("\nC vs A, per component (max relative on the final profile):\n");
+[sv, si] = sort(devC, "descend", MissingPlacement="last");
+for i = 1:np
+    if ~isnan(sv(i)), fprintf("   %-16s %.3e\n", panels(si(i)), sv(i)); end
+end
+
 fprintf("\n%-22s %12s %12s %12s\n", "config", "max phi_b", "biomass(end)", "vs A (max rel)");
 for k = 1:numel(R)
     if k == 1, s = "-"; else, s = sprintf("%.3e", max(D(:,k-1))); end
