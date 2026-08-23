@@ -28,6 +28,19 @@ here = fileparts(mfilename("fullpath"));
 W = fileparts(fileparts(here));
 addpath(genpath(fullfile(W,"src"))); addpath(here);
 S = fullfile(here, "data"); if ~isfolder(S), mkdir(S); end
+% Below 3 d there is no biofilm formation, so every number here describes the
+% startup transient rather than the model. This produced four wrong readings in
+% one session (kappa at 0.05 d, CFL budget at 0.3 d, implicit dispersion at
+% 0.02 d, w_s spread at 0.3 d), each a plausible-looking number rather than an
+% obvious error. Refuse rather than warn: a warning scrolls past.
+if opts.Days < 3
+    error("probeImplicitDispersion:inactiveRegime", ...
+        "Days = %g d is below the 3 d minimum: no biofilm has formed, so " + ...
+        "this measures the startup transient. Phase 0 measured phib_sup = 0 at " + ...
+        "0.3 d against 0.1377 at 3 d. Pass Days >= 3, or use a " + ...
+        "state-independent operator-level check instead.", opts.Days);
+end
+
 
 f = SandFilter(Temperature=19, ...
     LightIrradiation=@(t) 0.8*max(sin(2*pi*(t - 13/48)) + 31/50, 0)/(1 + 31/50));

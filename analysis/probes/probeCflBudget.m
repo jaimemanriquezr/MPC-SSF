@@ -40,6 +40,19 @@ here = fileparts(mfilename("fullpath"));
 W = fileparts(fileparts(here));
 addpath(genpath(fullfile(W,"src"))); addpath(here);
 S = fullfile(here, "data"); if ~isfolder(S), mkdir(S); end
+% Below 3 d there is no biofilm formation, so every number here describes the
+% startup transient rather than the model. This produced four wrong readings in
+% one session (kappa at 0.05 d, CFL budget at 0.3 d, implicit dispersion at
+% 0.02 d, w_s spread at 0.3 d), each a plausible-looking number rather than an
+% obvious error. Refuse rather than warn: a warning scrolls past.
+if opts.MatureDays < 3
+    error("probeCflBudget:inactiveRegime", ...
+        "MatureDays = %g d is below the 3 d minimum: no biofilm has formed, so " + ...
+        "this measures the startup transient. Phase 0 measured phib_sup = 0 at " + ...
+        "0.3 d against 0.1377 at 3 d. Pass MatureDays >= 3, or use a " + ...
+        "state-independent operator-level check instead.", opts.MatureDays);
+end
+
 
 f = SandFilter(Temperature=19, ...
     LightIrradiation=@(t) 0.8*max(sin(2*pi*(t - 13/48)) + 31/50, 0)/(1 + 31/50));
@@ -101,6 +114,27 @@ fprintf("      (matrix/binding scales ~dz^-2, so x25 from N=100 to N=500)\n");
 fprintf("    mean share of that region's sum:\n");
 for k = 1:4
     fprintf("      %-28s %6.2f%%\n", terms(k), 100*b.TermSums(k)/n);
+end
+
+fprintf("\n0g  w_s spread ACROSS CELLS (is a few depleted cells setting dt?)\n");
+fprintf("      per-cell ecology weight in the enclosed-liquid region, mean over steps:\n");
+fprintf("        p50 %.4e   p90 %.4e   p99 %.4e   max %.4e\n", ...
+    b.WsP50Sum/n, b.WsP90Sum/n, b.WsP99Sum/n, b.WsCellMaxSum/n);
+% Concentration as a RATIO OF TIME-MEANS, not a mean of per-step ratios. The
+% latter is dominated by startup steps where the median is ~1e-12 but nonzero,
+% giving meaningless 1e17 values while the time-averaged profile is flat.
+concRatio = (b.WsCellMaxSum/n)/max(b.WsP50Sum/n, realmin);
+conc90    = (b.WsP90Sum/n)/max(b.WsP50Sum/n, realmin);
+fprintf("      max/median %.2f   p90/median %.2f   (ratios of time-means)\n", concRatio, conc90);
+fprintf("      bound actually used / per-cell max: %.3f", (b.WsBoundSum/n)/max(b.WsCellMaxSum/n, eps));
+fprintf("   (>1 = the two maxima land in different cells)\n");
+if concRatio > 10
+    fprintf("      => HIGHLY concentrated: dt is set by a small minority of cells.\n");
+    fprintf("         A tighter bound or local time-stepping would be far cheaper\n");
+    fprintf("         than making reactions implicit.\n");
+else
+    fprintf("      => broadly distributed: the reaction stiffness is a genuine global\n");
+    fprintf("         constraint, so only implicit reactions would remove it.\n");
 end
 
 fprintf("\n0c  DECISION NUMBER -- speedup ceiling if cohesion were fully implicit\n");
@@ -174,7 +208,9 @@ res = struct("budget", b, "phibSup", phibSup, ...
     "phibConsistencyAbs", max(dAbs, [], "all"), ...
     "phibConsistencyRel", max(dAbs, [], "all")/den, ...
     "phibParDriftAbs", max(dPar, [], "all"), ...
-    "phibParDriftFinal", max(dPar(:,end)), "phibParDiag", r.SimulationData.PhibParDiag, "flag", r.Flag, "wall", wall, ...
+    "phibParDriftFinal", max(dPar(:,end)), ...
+    "wsP50", b.WsP50Sum/n, "wsP90", b.WsP90Sum/n, "wsP99", b.WsP99Sum/n, ...
+    "wsCellMax", b.WsCellMaxSum/n, "wsConc", concRatio, "wsBound", b.WsBoundSum/n, "phibParDiag", r.SimulationData.PhibParDiag, "flag", r.Flag, "wall", wall, ...
     "NCells", opts.NCells, "Kappa", opts.Kappa, "MatureDays", opts.MatureDays, ...
     "Xmean", b.XSum/n, "capFrac", b.CapBound/n, ...
     "regionFrac", b.RegionWins/n, "termFrac", b.TermSums/n, ...

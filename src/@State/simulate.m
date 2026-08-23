@@ -197,7 +197,10 @@ if parameters.RecordCflBudget
         "VbCohSum", 0, "VbCohMax", 0, ...       % cohesive share of max|v_b|
         "RegionShareSum", zeros(1,5), ...       % mean total(region)/max(total): the MARGIN
         "RegionShareMax", zeros(1,5), ...       % worst-case approach of each region
-        "MatrixShareNoCoh", 0);                 % same for region 1 with cohesion removed
+        "MatrixShareNoCoh", 0, ...              % same for region 1 with cohesion removed
+        "WsP50Sum", 0, "WsP90Sum", 0, "WsP99Sum", 0, ...   % spread of w_s ACROSS CELLS
+        "WsCellMaxSum", 0, "WsBoundSum", 0, ...  % per-cell max vs the bound actually used
+        "WsConcSum", 0, "WsConcMax", 0, "WsConcN", 0);  % max/median: few cells setting dt?
     phibCHFrames = nan(filter.GridZero, numFrames);
     % Free-running CH state: seeded once from phi_b, then advanced by Solver A
     % alone and NEVER re-seeded from Solver B. phibCHFrames above is re-seeded
@@ -611,6 +614,36 @@ while t < timeStart + simulationTime
             totalsAdv = w_v_adv/dz + w_a/dz^2 + w_b + w_s;
             cflBudget.MatrixShareNoCoh = cflBudget.MatrixShareNoCoh ...
                 + totalsAdv(1)/max(totalsAdv);
+
+            % How concentrated is w_s across cells? The bound uses max over ALL
+            % cells and liquids, so one nearly-depleted cell can set dt for the
+            % whole domain -- L ~ 1/(S + K) with K small. If max >> median the
+            % constraint is an artefact of a few cells and could be attacked far
+            % more cheaply than by making reactions implicit.
+            LbC = reshape(max(abs(L_b), [], 1), [], 1);   % per cell, max over liquids
+            LeC = reshape(max(abs(L_e), [], 1), [], 1);
+            wsCell = LbC + LeC;                            % region-3 ecology, per cell
+            sw = sort(wsCell); nsw = numel(sw);
+            p50 = sw(max(1, round(0.50*nsw)));
+            p90 = sw(max(1, round(0.90*nsw)));
+            p99 = sw(max(1, round(0.99*nsw)));
+            wsCellMax = sw(end);
+            cflBudget.WsP50Sum = cflBudget.WsP50Sum + p50;
+            cflBudget.WsP90Sum = cflBudget.WsP90Sum + p90;
+            cflBudget.WsP99Sum = cflBudget.WsP99Sum + p99;
+            cflBudget.WsCellMaxSum = cflBudget.WsCellMaxSum + wsCellMax;
+            % w_s(3) sums two INDEPENDENT maxima (over L_b and over L_e), which
+            % may be attained in different cells, so it is >= the per-cell max.
+            % That gap is extra conservatism costing nothing to remove.
+            cflBudget.WsBoundSum = cflBudget.WsBoundSum + w_s(3);
+            % Only meaningful once the median is nonzero: at startup every cell
+            % is zero and max/p50 would be Inf, poisoning the running mean.
+            if p50 > 0
+                conc = wsCellMax/p50;
+                cflBudget.WsConcSum = cflBudget.WsConcSum + conc;
+                cflBudget.WsConcMax = max(cflBudget.WsConcMax, conc);
+                cflBudget.WsConcN   = cflBudget.WsConcN + 1;
+            end
 
             cohShare = 1 - vbmaxAdv/max(vbmax, eps);
             cflBudget.VbCohSum = cflBudget.VbCohSum + cohShare;
