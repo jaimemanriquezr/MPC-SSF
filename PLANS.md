@@ -301,3 +301,43 @@ order in `1/phi_f` and proportional to the GRADIENT of `phi_f`, not to `phi_f` i
 lag is harmless wherever `phi_f` is smooth, and only bites where it is both small and steep --
 the schmutzdecke front. Still worth avoiding, but level A avoids it for free, and the earlier
 `1/phi_f^2` claim was too pessimistic.
+
+### Measured: implicit dispersion at N=200, 3 d — and a corrected scaling argument
+
+First production-regime measurement (job 3531640, task 1):
+
+| | |
+|---|---|
+| steps | 302170 -> 106116, **2.85x reduction** |
+| wall time | 234 s -> 125 s, **1.87x** (the 9 tridiagonal solves cost real time) |
+| accuracy, explicit vs implicit at common dt | **1.56e-06** |
+| binds now | **enclosed L**, 72% of steps |
+| its composition | `w_v/dz` **0.323** | `w_a` 0.000 | `w_b` 0.018 | `w_s` **0.658** |
+
+So reactions do become the stiff term, as projected. Note the gain (2.85x) came in BELOW the
+4.97x projected from region shares -- the linear projection assumed time-mean term shares
+compose exactly, which they do not. Treat the 7.43x quoted for N=500 as an upper bound.
+
+**Corrected scaling argument.** An earlier version of this reasoning claimed that making
+reactions implicit "trades N^1 for N^2 and loses" at fine mesh, because `w_s` is dz-free
+(cost ~ N) while `w_v/dz` is not (cost ~ N^2). That is wrong. The N^1 regime is TRANSIENT:
+`w_v/dz` grows without bound under refinement and `w_s` does not, so advection overtakes
+reactions **on its own** at N ~ 407 (from A/S = 0.323/0.658 at N=200). Past that the explicit
+scheme is also N^2, so there is no divergence to lose against.
+
+| N | w_v share | w_s share | binds | implicit-reaction gain |
+|---|---|---|---|---|
+| 200 | 0.323 | 0.658 | reactions | 2.93x |
+| 407 | 0.496 | 0.490 | crossover | 1.96x |
+| 500 | 0.544 | 0.443 | advection | 1.80x |
+| 800 | 0.656 | 0.334 | advection | 1.50x |
+| 1615 | 0.794 | 0.200 | advection | 1.25x |
+
+Implicit reactions are therefore **diminishing but never negative**. The argument against
+them is not that they backfire, it is that 1.25x at N=1615 is a poor return on a per-cell
+23x23 semismooth Newton over a non-smooth Liebig min, executed 1002 times per step.
+
+**What the table actually points at:** at N >= 500 the binding term is ADVECTION, reaching
+79% at N=1615. Implicit upwind advection is bidiagonal and structurally simpler than
+reactions. The obstacle there is accuracy, not implementation -- `dz/q` at N=1615 is
+8.6e-05 d, and exceeding it smears the transport.
