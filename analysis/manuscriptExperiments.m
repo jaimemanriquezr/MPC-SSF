@@ -27,10 +27,33 @@ arguments
     options.PGExcess (1,1) logical = true;
     options.NCells (1,1) {mustBeNumeric} = 100;
     options.MaxDt (1,1) {mustBeNumeric} = 3e-6;
-    % Article value (Table 2) — the presets carry 1e-6, which is CH-unstable at
-    % fine grids (dt 3e-6 blew up at 100 cells, t=5.9 d); the manuscript's 1e-7
-    % is what allowed the legacy article runs at N=500, dt 1e-5.
+    % Article value (Table 2).
+    %
+    % 2026-08-23: the note that used to stand here justified 1e-7 by "the presets
+    % carry 1e-6, which is CH-unstable at fine grids (dt 3e-6 blew up at 100
+    % cells, t=5.9 d)". That attribution cannot be right. Kappa is read in
+    % exactly ONE place in the tree, getCahnHilliardMatrices.m:55, and until
+    % 2026-08-23 that fed block (1,1) of the CH system, whose solution is
+    % discarded -- so kappa had no effect on any output and appears nowhere in
+    % the CFL bound. It cannot have caused that blow-up. The blow-up was real but
+    % its cause is unknown, and may resurface now that kappa is live.
+    %
+    % Sizing, now that it matters (zeta_0 = 1e2 via pathogenModel; interface
+    % width ell = sqrt(kappa/Psi''), Psi'' = 3*phi*(phi - zeta_1) ~ 0.26 at
+    % phi = 0.3 -- NOT sqrt(kappa), which is ~2x too pessimistic):
+    %     kappa=1e-7  ell=0.62mm  needs N~1615   cohesion dt ~4.8e-8
+    %     kappa=1e-6  ell=1.96mm  needs N~510    cohesion dt ~4.8e-7
+    %     kappa=1e-5  ell=6.19mm  needs N~161    cohesion dt ~4.8e-6
+    % 1e-6 at N=500 is resolved (dz/ell = 1.02) and is what modelLund and
+    % modelPathogen already carry. Note zeta_0 = 1e6 in modelLund, which shifts
+    % the dt column by 1e4 -- these figures are for the E3 path only.
     options.Kappa (1,1) {mustBeNumeric} = 1e-7;
+    % Overrides D.long, the duration of the E1/E3/X1 long run. Default 90 keeps
+    % D bit-identical to before this option existed. matureAt is clamped to it,
+    % so a Days < 30 run caches a state younger than the "mature30" filename
+    % suggests -- fine in an isolated OutRoot, but do not feed such a cache to
+    % E4/E5/E6/E10.
+    options.Days (1,1) {mustBeNumeric, mustBePositive} = 90;
     options.Smoke (1,1) logical = false;
     options.OutRoot (1,1) string = "";
 end
@@ -46,7 +69,8 @@ if options.Smoke
     D = struct("long", 0.2, "matureAt", 0.1, "covered", 0.1, "postScrape", 0.05, ...
                "patStart", 0.1, "pulseOn", 0.12, "pulseOff", 0.14, "patLen", 0.08);
 else
-    D = struct("long", 90, "matureAt", 30, "covered", 30, "postScrape", 30, ...
+    D = struct("long", options.Days, "matureAt", min(30, options.Days), ...
+               "covered", 30, "postScrape", 30, ...
                "patStart", 30, "pulseOn", 30, "pulseOff", 32, "patLen", 10);
 end
 

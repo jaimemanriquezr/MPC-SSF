@@ -35,6 +35,11 @@ arguments
     % regions. Purely observational: the reaction rates are bit-identical with
     % it on or off, and nothing is allocated when it is off.
     parameters.RecordLimitation (1,1) logical = false;
+    % Phase 0 of the Bailo investigation (.claude/plans/2026-08-23-bailo-scheme.md):
+    % attribute the adaptive CFL bound to region and term, and price the
+    % counterfactual in which the cohesive part of v_b were treated implicitly.
+    % Exact counters accumulated every step; no per-step arrays.
+    parameters.RecordCflBudget (1,1) logical = false;
 end
 if ~isempty(options)
     for field = string(fieldnames(options)).'
@@ -162,6 +167,19 @@ concFramesFlowing = zeros(length(depthCenters),numFrames, kP + kL);
 % ---------- LIMITATION DIAGNOSTIC (opt-in) --------------%
 % Allocated only when requested. uint8 for the argmin, single for the values:
 % ~13 MB for a 100-cell/2160-frame/6-reaction run.
+if parameters.RecordCflBudget
+    cflBudget = struct( ...
+        "Steps", 0, "CapBound", 0, ...          % dt pinned to AdaptiveMaxDt, not the CFL
+        "RegionWins", zeros(1,5), ...           % argmax over [matrix, encP, encL, flowP, flowL]
+        "TermSums", zeros(1,4), ...             % share of w_v/dz, w_a/dz^2, w_b, w_s in that region
+        "XSum", 0, "XMin", Inf, "XMax", 0, ...  % dt_CFL(advective v_b only) / dt_CFL(actual)
+        "VbCohSum", 0, "VbCohMax", 0, ...       % cohesive share of max|v_b|
+        "RegionShareSum", zeros(1,5), ...       % mean total(region)/max(total): the MARGIN
+        "RegionShareMax", zeros(1,5), ...       % worst-case approach of each region
+        "MatrixShareNoCoh", 0);                 % same for region 1 with cohesion removed
+    phibCHFrames = nan(filter.GridZero, numFrames);
+end
+
 if parameters.RecordLimitation
     nRx = numel(model.Reactions);   % == size(muRates, 2), but muRates is built later
     limFramesBiofilm  = zeros(length(depthCenters), numFrames, nRx, "uint8");
@@ -430,6 +448,15 @@ while t < timeStart + simulationTime
     xCH = lhsCH \ rhsCH;
     % uCH = xCH(1:n0);
     muCH = xCH(n0+1:end);
+    if parameters.RecordCflBudget
+        % Solver A's own phi_b, normally discarded. Recorded so it can be
+        % compared against the diagnostic sum over biofilm components -- the
+        % consistency condition that gates the component-elimination design in
+        % .claude/plans/2026-08-23-bailo-scheme.md. If these two routes to phi_b
+        % disagree, the mismatch would land entirely in the reconstructed
+        % component.
+        uCHrec = xCH(1:n0);
+    end
 
     % computing vb
     velBiofilm(1:n0-1) = volumeAvgVelocity(2:n0) - zeta_0*(1 - uB).*diff(muCH)/dz;
@@ -490,6 +517,45 @@ while t < timeStart + simulationTime
 
         dt_CFL = cflFactor/max(w_v/dz + w_a/dz^2 + w_b + w_s);
         dt = min([dt_CFL, (1 + adaptiveTimeTolerance)*dt, adaptiveMaxDt]);
+
+        if parameters.RecordCflBudget
+            % 0a/0b: which region attains the max, and each term's share of it.
+            totals = w_v/dz + w_a/dz^2 + w_b + w_s;
+            [~, kReg] = max(totals);
+            terms = [w_v(kReg)/dz, w_a(kReg)/dz^2, w_b(kReg), w_s(kReg)];
+            % 0c: counterfactual with the cohesive part of v_b made implicit.
+            % velBiofilm(1:n0-1) = volumeAvgVelocity(2:n0) - zeta_0*(1-uB).*diff(muCH)/dz,
+            % so removing cohesion leaves the advective part alone; entries n0..end
+            % (the bed, where v_b == 0) are unchanged.
+            vbAdv = velBiofilm; vbAdv(1:n0-1) = volumeAvgVelocity(2:n0);
+            vbmaxAdv = (1 + adaptiveVelocityFactor)*max(abs(vbAdv));
+            w_v_adv = [2*vbmaxAdv*[1 1 1], 2*vfmax*[1 1]];
+            dt_CFL_adv = cflFactor/max(w_v_adv/dz + w_a/dz^2 + w_b + w_s);
+            X = dt_CFL_adv/dt_CFL;
+
+            cflBudget.Steps = cflBudget.Steps + 1;
+            cflBudget.CapBound = cflBudget.CapBound + (dt_CFL >= adaptiveMaxDt);
+            cflBudget.RegionWins(kReg) = cflBudget.RegionWins(kReg) + 1;
+            cflBudget.TermSums = cflBudget.TermSums + terms/sum(terms);
+            cflBudget.XSum = cflBudget.XSum + X;
+            cflBudget.XMin = min(cflBudget.XMin, X);
+            cflBudget.XMax = max(cflBudget.XMax, X);
+            % How close did each region come to winning? Reporting only the
+            % argmax hides whether the matrix region lost by 1% or by 100x --
+            % and that margin is what predicts finer meshes, since region 1 has
+            % no dispersion term and its cohesive part scales as zeta_0*kappa/dz^4
+            % while region 4 scales as dz^-2.
+            shares = totals/max(totals);
+            cflBudget.RegionShareSum = cflBudget.RegionShareSum + shares;
+            cflBudget.RegionShareMax = max(cflBudget.RegionShareMax, shares);
+            totalsAdv = w_v_adv/dz + w_a/dz^2 + w_b + w_s;
+            cflBudget.MatrixShareNoCoh = cflBudget.MatrixShareNoCoh ...
+                + totalsAdv(1)/max(totalsAdv);
+
+            cohShare = 1 - vbmaxAdv/max(vbmax, eps);
+            cflBudget.VbCohSum = cflBudget.VbCohSum + cohShare;
+            cflBudget.VbCohMax = max(cflBudget.VbCohMax, cohShare);
+        end
     end
     %======================================================================%
 
@@ -593,6 +659,10 @@ while t < timeStart + simulationTime
         velFramesBiofilm(:, counter, :) = velBiofilm;
         velFramesFlowing(:, counter, :) = velFlowing(2:end-1);
 
+        if parameters.RecordCflBudget
+            phibCHFrames(:, counter) = uCHrec;
+        end
+
         if parameters.RecordLimitation
             limFramesBiofilm(:, counter, :)   = limB;
             limFramesFlowing(:, counter, :)   = limF;
@@ -636,6 +706,13 @@ results.Frames.Concentrations = cell2table(concentrations_cell,  ...
     'DimensionNames', {'Component', 'Volume'});
 results.Frames.Velocity.Biofilm = velFramesBiofilm;
 results.Frames.Velocity.Flowing = velFramesFlowing;
+
+if parameters.RecordCflBudget
+    % SimulationData is the existing home for run diagnostics (see :193-221);
+    % adding a Results property would change the class for every consumer.
+    results.SimulationData.CflBudget = cflBudget;
+    results.SimulationData.PhibCH = phibCHFrames;
+end
 
 if parameters.RecordLimitation
     results.Frames.Limitation.Biofilm = limFramesBiofilm;

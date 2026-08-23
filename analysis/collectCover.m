@@ -107,8 +107,7 @@ if ~isempty(P)
         fprintf("  %-46s s=%-7.4g R_B02=%6.3f R_B010=%6.3f R_mat=%6.3f dDOC=%+6.2fpp eps_L=%+6.3f %s%s\n", ...
             P.pairKey(j), P.cover(j), P.R_B_0_2(j), P.R_B_0_10(j), P.R_mat(j), ...
             100*P.dDOC(j), P.eps_L(j), ...
-            ternaryStr(P.jointPass(j), "PASS", "    "), ...
-            ternaryStr(~P.massOK(j), "  [MASS GUARD FAILED]", ""));
+            ternaryStr(P.jointPass(j), "PASS", "    "), massTag(P.massOK(j)));
     end
 end
 
@@ -227,6 +226,17 @@ end
 % =========================================================================
 function s = ternaryStr(c, a, b)
 if c, s = a; else, s = b; end
+end
+
+% =========================================================================
+function s = massTag(ok)
+% Three states, not two: NaN means the artefact predates closure_residual, so
+% the guard is UNDETERMINED. Reporting that as a pass would be worse than
+% reporting nothing.
+if isnan(ok),    s = "  [mass guard n/a]";
+elseif ok,       s = "";
+else,            s = "  [MASS GUARD FAILED]";
+end
 end
 
 % =========================================================================

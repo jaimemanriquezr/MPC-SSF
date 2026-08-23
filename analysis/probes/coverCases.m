@@ -39,7 +39,7 @@ function cases = coverCases(stage)
 % See also PROBECOVER, COLLECTCOVER, COVERTAG.
 
 arguments
-    stage (1,1) string {mustBeMember(stage, ["A","B","Bprime","C","smoke","all"])} = "all"
+    stage (1,1) string {mustBeMember(stage, ["A","B","Bprime","Bres","C","smoke","all"])} = "all"
 end
 
 % ---- nominal levels -----------------------------------------------------
@@ -121,6 +121,34 @@ if any(stage == ["Bprime","all"])
         c = base; c.stage = "Bprime"; c.cover = s; c.tsim = 10.0;
         c.ncells = 300; c.maxdt = 1e-6;   % finer grid tightens the CFL bound
         cases(end+1,1) = add(c); %#ok<AGROW>
+    end
+end
+
+% ---- Stage Bres: Cahn-Hilliard mesh-resolution control ------------------
+% Appendix A.2 recommends dz < sqrt(kappa) so the CH interfacial layer is
+% resolved. With kappa = 1e-7, sqrt(kappa) = 0.316 mm; dz = 1/(N + 1/2), so
+% N = 100 gives 9.95 mm (31x too coarse) and even the PUBLISHED N = 500 gives
+% 2.0 mm (6.3x). Satisfying it needs N ~ 3162, which is out of reach; the
+% manuscript's own convergence study (Fig. A.2) used 500/750/1000, so it never
+% reached the criterion either.
+%
+% The CH solve is sized 2*n0 with n0 = GridZero (simulate.m:98-101), i.e. it acts
+% ONLY in the supernatant -- v_b = 0 in the packed bed by definition -- so the
+% bed QoIs are not directly subject to this. The supernatant ones (phib_sup,
+% mat_mass, mat_depth) are.
+%
+% Bprime already has an N = 300 pair at the DEFAULT etaSand = 1500, so N is not
+% confounded with the optical factor -- but it IS confounded with maxdt, which
+% had to drop to 1e-6 for the finer grid's CFL bound. So two controls at N = 100:
+%   dt 3e-6  the Stage-A timestep -> pairs against Bprime to give (N and dt)
+%   dt 1e-6  Bprime's timestep    -> pairs against Bprime to ISOLATE N
+% Comparing the two N = 100 rows isolates dt on its own.
+if any(stage == ["Bres","all"])
+    for mdt = [3e-6, 1e-6]
+        for sc = [1.0, 0.0]
+            c = base; c.stage = "Bres"; c.cover = sc; c.tsim = 10.0; c.maxdt = mdt;
+            cases(end+1,1) = add(c); %#ok<AGROW>
+        end
     end
 end
 

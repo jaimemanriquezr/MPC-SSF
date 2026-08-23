@@ -19,7 +19,9 @@ classdef SandFilter
     properties (Dependent, Hidden)
         GridSize
         GridZero
-        
+        CellWidths
+        CenterSpacings
+
         LightAttenuationEtaWater
         LightAttenuationEtaSand
     end       
@@ -45,11 +47,44 @@ classdef SandFilter
         end
         
         function dz = get.GridSize(obj)
-            dz = mean(diff(obj.GridPoints.Boundaries));
+            % Uniform cell width. mean(diff(...)) telescopes to
+            % (last - first)/N, so on a NON-uniform mesh it returns the average
+            % and every one of its ~60 call sites keeps running on a wrong
+            % number. Fail loudly instead; a graded mesh must use CellWidths.
+            widths = diff(obj.GridPoints.Boundaries);
+            dz = mean(widths);
+            if ~isempty(widths) && max(abs(widths - dz)) > 1e-12*dz
+                error("SandFilter:nonUniformGrid", ...
+                    "GridSize is only defined on a uniform mesh (spread %.3g of mean %.3g). " + ...
+                    "Use CellWidths for a graded mesh.", max(abs(widths - dz)), dz);
+            end
+        end
+
+        function w = get.CellWidths(obj)
+            % Per-cell widths, valid on any mesh. N x 1.
+            w = diff(obj.GridPoints.Boundaries);
+        end
+
+        function h = get.CenterSpacings(obj)
+            % Centre-to-centre distances, i.e. the denominators for face
+            % gradients. (N-1) x 1. Equal to CellWidths only on a uniform mesh --
+            % conflating the two is a silent O(1) error on a graded one.
+            h = diff(obj.GridPoints.Centers);
         end
 
         function n0 = get.GridZero(obj)
-            n0 = find(abs(obj.GridPoints.Centers) < obj.GridSize/2);
+            % Index of the last cell at or above the sand surface. addGridPoints
+            % guarantees a cell CENTRE sits exactly at z = 0 and no face does.
+            %
+            % Was: find(abs(Centers) < GridSize/2), with no ",1" -- which returns
+            % a VECTOR whenever more than one centre falls within half a mean
+            % width of zero, as happens on any mesh refined near z = 0. That
+            % vector then sizes the Cahn-Hilliard system (simulate.m:97-101).
+            n0 = find(obj.GridPoints.Boundaries >= 0, 1) - 1;
+            if isempty(n0) || n0 < 1
+                error("SandFilter:noGridZero", ...
+                    "no cell boundary at or below z = 0; check the grid");
+            end
         end
 
         function eta = get.LightAttenuationEtaWater(obj)

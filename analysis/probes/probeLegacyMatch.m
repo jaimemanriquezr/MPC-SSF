@@ -49,6 +49,10 @@ arguments
     opts.MaxDt  (1,1) double = 3e-6
     opts.Variant (1,1) string {mustBeMember(opts.Variant, ...
         ["published","plusResp","publishedIopt1814"])} = "published"
+    % Winter photoperiod. "manuscript" is the curve batch_seasons.m and
+    % manuscriptExperiments both use; "realistic" corrects it -- see below.
+    opts.WinterLight (1,1) string {mustBeMember(opts.WinterLight, ...
+        ["manuscript","realistic"])} = "manuscript"
     opts.Force  (1,1) logical = false
 end
 
@@ -58,6 +62,7 @@ addpath(genpath(fullfile(W,"src"))); addpath(fullfile(W,"analysis")); addpath(he
 S = fullfile(here, "data"); if ~isfolder(S), mkdir(S); end
 
 tag = sprintf("legmatch_%s_%s_n%d", season, opts.Variant, opts.NCells);
+if opts.WinterLight == "realistic", tag = tag + "_wreal"; end
 out = fullfile(S, tag + ".mat");
 if isfile(out) && ~opts.Force
     fprintf("LEGMATCH skip %s\n", tag); res = load(out).res; return
@@ -101,7 +106,27 @@ if season == "summer"
     light = @(t) max(.5*(sin(2*pi*(t - 0.3)) + 1) - 0.2, 0);
 else
     f = SandFilter(Temperature=3);
-    light = @(t) max(.5*(sin(2*pi*(t - 0.2)) + 1) - 0.4, 0);
+    % The manuscript winter curve gives 13.54 h of daylight and a peak of 0.60,
+    % i.e. 0.75x summer's peak and 0.63x its daily integral. At Lund (55.7 N),
+    % where the "Scandinavian winter" scenario is set, 21 December has 6 h 55 m
+    % of daylight and a noon solar elevation of 10.8 deg against 57.8 deg on
+    % 21 June -- a true daylight ratio of 0.395 and a true peak-irradiance ratio
+    % of sin(10.8)/sin(57.8) = 0.221. So the manuscript curve understates the
+    % seasonal light contrast by roughly sixfold in integrated terms.
+    %
+    % Offset 0.81 fixes it and is self-consistent on BOTH measures
+    % independently: 6.89 h of daylight (actual 6.92) and a peak ratio of 0.237
+    % (physical 0.221). Summer needs no correction -- 16.92 h against an actual
+    % 17.5 h.
+    %
+    % This matters for the seasonal ordering: with winter light barely reduced,
+    % the 19 -> 3 C temperature drop dominates, and since standing stock is
+    % supply / theta-suppressed decay, slower winter decay wins.
+    if opts.WinterLight == "realistic"
+        light = @(t) max(.5*(sin(2*pi*(t - 0.2)) + 1) - 0.81, 0);
+    else
+        light = @(t) max(.5*(sin(2*pi*(t - 0.2)) + 1) - 0.4, 0);
+    end
 end
 f = f.addGridPoints(opts.NCells);
 f.LightIrradiation = light;
@@ -111,8 +136,12 @@ infl = dictionary( ...
     ["HET","PHO","POM","PAT","O2","IC","NH4","HPO4","DOM"], ...
     [2.68e-3, 1.00e-2, 0.0, 0.0, 9.10e-3, 6.23e-3, 2.00e-5, 0.0, 1.75e-4]);
 
-fprintf("LEGMATCH start %s variant=%s Iopt=%g nRx=%d n=%d t=%gd T=%g\n", ...
-    tag, opts.Variant, iOpt, numel(m.Reactions), opts.NCells, opts.Tsim, f.Temperature);
+% Report the light curve as actually instantiated, not as labelled: integrate it
+% so the printed daylight hours can be checked against the intent.
+tt = linspace(0,1,20001); Ic = arrayfun(f.LightIrradiation, tt);
+fprintf("LEGMATCH start %s variant=%s wlight=%s Iopt=%g nRx=%d n=%d t=%gd T=%g | peak=%.2f daylight=%.2fh\n", ...
+    tag, opts.Variant, opts.WinterLight, iOpt, numel(m.Reactions), opts.NCells, opts.Tsim, ...
+    f.Temperature, max(Ic), 24*mean(Ic > 0));
 tRun = tic;
 
 r = simulate(State(f, m), InflowConcentrations=infl, SimulationTime=opts.Tsim, ...
@@ -130,6 +159,8 @@ for nm = [m.Particles.Name], phiB = phiB + (C{nm,"Matrix"}{1} + C{nm,"Enclosed"}
 for nm = [m.Liquids.Name],   phiB = phiB + C{nm,"Enclosed"}{1}/dL; end
 
 res = struct("tag", tag, "season", season, "variant", opts.Variant, ...
+    "winterLight", opts.WinterLight, "temperatureC", f.Temperature, ...
+    "lightPeak", max(Ic), "daylightHours", 24*mean(Ic > 0), ...
     "iOpt", iOpt, "nReactions", numel(m.Reactions), "ncells", opts.NCells, ...
     "flag", string(r.Flag), "tFinal", r.TimeFinal, "wallMin", toc(tRun)/60, ...
     "phib_max", max(phiB(:,end)), "phib_sup", max(phiB(z<0,end)), ...
