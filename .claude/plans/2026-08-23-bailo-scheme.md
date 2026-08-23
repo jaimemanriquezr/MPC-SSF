@@ -190,6 +190,66 @@ The last gate is the whole point; a prototype that only works at small Δt has p
 
 ---
 
+## Phase 1 results (2026-08-23) — prototype built, three gates pass, two open
+
+`analysis/prototypes/bailo/bailoCH1D.m` implements (2.1a)-(2.1i) in Bailo's own
+phi in [-1,1]; `validateBailo.m` runs the gates. Deep-quench case of section 4.1,
+H = (1-phi^2)/2, so Hc = 0 and He = phi^2/2 - 1/2.
+
+**Nonlinear solve.** The paper specifies none. Used here: Picard with the mobility AND
+the upwind direction lagged, making each iterate a linear pentadiagonal solve. Lagging is
+legitimate at convergence -- the converged iterate satisfies the fully implicit equations,
+which is what the proofs need.
+
+**Gates 1-3 PASS**, across the paper's range of eps:
+
+| eps | mass drift | bound violation | max energy increase | Picard iters |
+|---|---|---|---|---|
+| 1    | 8.62e-13 | 3.95e-11 | 1.30e-12 | 33.6 |
+| 0.1  | 1.45e-12 | 3.55e-11 | 2.41e-13 | 28.9 |
+| 0.01 | 2.69e-12 | 4.69e-11 | 1.80e-14 | 31.6 |
+
+Bound violations sit at the same order as the mass drift and the operator's conditioning,
+so they read as solve roundoff, not structural. Energy is monotone to roundoff.
+
+**Gate 4 (second order) NOT YET ESTABLISHED.** Convergence to the exact steady state (4.1):
+
+| M | dx | err | order |
+|---|---|---|---|
+| 50  | 1.885e-02 | 7.7435e-04 | - |
+| 100 | 9.425e-03 | 2.0710e-04 | 1.903 |
+| 200 | 4.712e-03 | 5.0453e-05 | 2.037 |
+| 400 | 2.356e-03 | 1.3393e-05 | 1.913 |
+| 800 | 1.178e-03 | 5.7400e-06 | **1.222** |
+
+Second order over three refinements, then it degrades. Most likely the error floor: T is
+fixed at 20*eps^2 and dt at 0.1*eps^2, so `err vs phi_inf` mixes spatial discretisation with
+leftover transient and first-order temporal error. Refining the mesh shrinks the first only.
+Test running: hold M = 800 and grow T. **Not yet confirmed.**
+
+**Gate 5 (unconditionality) NOT ESTABLISHED -- and this is the important one.**
+
+| dt | mass | bounds | max dE | Picard | err |
+|---|---|---|---|---|---|
+| 0.001 (1x)    | 1.45e-12 | 3.55e-11 | 2.41e-13 | 28.9 | 5.045e-05 |
+| 0.01 (10x)    | 1.49e-11 | 5.18e-09 | 0 | **2000 (cap)** | 2.145e-04 |
+| 0.1 (100x)    | 8.91e-12 | 1.05e-10 | 0 | **2000 (cap)** | 7.370e-02 |
+| 1 (1000x)     | 3.67e-10 | 0 | 0 | **2000 (cap)** | 1.536e-01 |
+
+Bounds and energy do hold at 1000x dt -- but **Picard hit its iteration cap at every dt
+beyond 1x**, so those runs are not solving the implicit system at all, and the zeros in the
+energy column are consistent with a stalled iterate rather than a dissipating one. The
+unconditional-stability claim is therefore untested. The weak link is the ITERATION, not the
+scheme.
+
+**Consequences for the plan.**
+- Phase 3's cost question is already partly answered and the answer is bad: ~29-34 linear
+  solves per step against the present scheme's ONE. Even at 1x dt this is ~30x the Solver A
+  cost, and Phase 0 established there is no dt to be won back (X = 1.000).
+- Picard must be replaced by Newton (or Anderson-accelerated / damped iteration) before
+  Gate 5 can be attempted. The upwind max/min makes the residual non-smooth, so this wants
+  a semismooth Newton rather than a plain one.
+
 ## Phase 2 — Substitute our potential and mobility (native (0,1) form)
 
 Same prototype, still standalone, now rewritten in u ∈ [0,1] — no change of variable at
