@@ -32,6 +32,7 @@ arguments
     opts.MatureDays (1,1) double = 3
     opts.MaxDt (1,1) double = 3e-6
     opts.Respiration (1,1) double = 0.55
+    opts.PositiveMobility (1,1) logical = false
     opts.Save (1,1) logical = true
 end
 
@@ -55,15 +56,16 @@ m = Model(mp.Components, mp.Reactions, Kappa=opts.Kappa, ...
 inflow = [2.68e-3, 1.00e-2, 0.0, 0.0, 9.10e-3, 6.23e-3, 2.00e-5, 0.0, 1.75e-4];
 
 fprintf("\n=== Phase 0: CFL budget ===\n");
-fprintf("N = %d, kappa = %g, zeta_0 = %g, %.2f d, MaxDt = %g\n\n", ...
-    opts.NCells, opts.Kappa, m.CohesionSubModel.Zeta0, opts.MatureDays, opts.MaxDt);
+fprintf("N = %d, kappa = %g, zeta_0 = %g, %.2f d, MaxDt = %g, PositiveMobility = %d\n\n", ...
+    opts.NCells, opts.Kappa, m.CohesionSubModel.Zeta0, opts.MatureDays, opts.MaxDt, opts.PositiveMobility);
 
 t0 = tic;
 % Same call as manuscriptExperiments/runSim, plus the budget recorder.
 r = simulate(State(f, m), InflowConcentrations=inflow, ...
     SimulationTime=opts.MatureDays, TimeStep="adaptive", ...
     AdaptiveInitialDt=1e-8, AdaptiveMaxDt=opts.MaxDt, ...
-    FrameNumber=24, ImplicitOsmosis=true, RecordCflBudget=true, Quiet=true);
+    FrameNumber=24, ImplicitOsmosis=true, RecordCflBudget=true, ...
+    PositiveMobility=opts.PositiveMobility, Quiet=true);
 wall = toc(t0);
 
 b = r.SimulationData.CflBudget;
@@ -139,9 +141,40 @@ fprintf("      final-frame max abs %.4e\n", max(dAbs(:,end)));
 fprintf("      judge by dt-scaling, not by this number alone: O(dt) splitting\n");
 fprintf("      offset is expected. See slurm/cfl_0e_dtscale.sbatch.\n");
 
+% --- 0f: ACCUMULATED drift of a free-running Solver A ------------------------
+% 0e re-seeds u from Solver B every step, so it can only ever show a one-step
+% difference. The elimination design makes Solver A's phi_b authoritative for
+% the WHOLE run, so what matters is whether an un-reseeded CH state tracks the
+% component sum over thousands of steps. That is this.
+phibPar = r.SimulationData.PhibPar;
+dPar = abs(phibPar(:,ok) - phibSum(:,ok));
+tt = r.Frames.Time(ok); tt = tt(:).';
+fprintf("\n0f  FREE-RUNNING Solver A phi_b vs component sum (never re-seeded)\n");
+fprintf("      max abs drift  %.4e   (%.3f%% of max|phi_b|)\n", ...
+    max(dPar, [], "all"), 100*max(dPar, [], "all")/den);
+fprintf("      final-frame    %.4e   (%.3f%% of max|phi_b|)\n", ...
+    max(dPar(:,end)), 100*max(dPar(:,end))/den);
+fprintf("      one-step (0e) for comparison: %.4e -- ratio %.1fx\n", ...
+    max(dAbs, [], "all"), max(dPar, [], "all")/max(max(dAbs, [], "all"), eps));
+pd = r.SimulationData.PhibParDiag;
+fprintf("      free state range over ALL steps: min %.4e  max %.4e\n", pd.minSeen, pd.maxSeen);
+fprintf("      first phi_b < 0 at t = %.4g d\n", pd.tFirstNeg);
+fprintf("      first phi_b > 1 at t = %.4g d\n", pd.tFirstAbove1);
+fprintf("      first non-finite at t = %.4g d  (dead = %d)\n", pd.tFirstNaN, pd.dead);
+if ~isnan(pd.tFirstNeg)
+    fprintf("      => UNSTABLE. mobility zeta_0*u(1-u) < 0 once u < 0, so diffusion\n");
+    fprintf("         becomes anti-diffusion and the blow-up self-reinforces. Solver A\n");
+    fprintf("         CANNOT carry phi_b on its own with the present scheme.\n");
+end
+nshow = min(8, numel(tt));
+idx = round(linspace(1, numel(tt), nshow));
+fprintf("      drift growth:  %s\n", strjoin(compose("t=%.2f:%.1e", tt(idx).', max(dPar(:,idx)).'), "  "));
+
 res = struct("budget", b, "phibSup", phibSup, ...
     "phibConsistencyAbs", max(dAbs, [], "all"), ...
-    "phibConsistencyRel", max(dAbs, [], "all")/den, "flag", r.Flag, "wall", wall, ...
+    "phibConsistencyRel", max(dAbs, [], "all")/den, ...
+    "phibParDriftAbs", max(dPar, [], "all"), ...
+    "phibParDriftFinal", max(dPar(:,end)), "phibParDiag", r.SimulationData.PhibParDiag, "flag", r.Flag, "wall", wall, ...
     "NCells", opts.NCells, "Kappa", opts.Kappa, "MatureDays", opts.MatureDays, ...
     "Xmean", b.XSum/n, "capFrac", b.CapBound/n, ...
     "regionFrac", b.RegionWins/n, "termFrac", b.TermSums/n, ...
@@ -149,10 +182,15 @@ res = struct("budget", b, "phibSup", phibSup, ...
     "matrixShareNoCoh", b.MatrixShareNoCoh/n);
 
 if opts.Save
-    tag = sprintf("cflbudget_n%d_k%g_%gd_dt%g", opts.NCells, opts.Kappa, opts.MatureDays, opts.MaxDt);
+    tag = sprintf("cflbudget_n%d_k%g_%gd_dt%g%s", opts.NCells, opts.Kappa, opts.MatureDays, opts.MaxDt, ...
+        ternaryStr(opts.PositiveMobility, "_posmob", ""));
     save(fullfile(S, tag + ".mat"), "res", "-v7");
     fprintf("\nwrote %s\n", fullfile(S, tag + ".mat"));
 end
+end
+
+function out = ternaryStr(c, a, b)
+if c, out = a; else, out = b; end
 end
 
 function phiB = biofilmFractionLocal(r)

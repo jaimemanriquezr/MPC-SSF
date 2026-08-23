@@ -40,6 +40,18 @@ arguments
     % counterfactual in which the cohesive part of v_b were treated implicitly.
     % Exact counters accumulated every step; no per-step arrays.
     parameters.RecordCflBudget (1,1) logical = false;
+    % Clamp the Cahn-Hilliard mobility to its positive part,
+    % lambda = max(zeta_0*M(u), 0). For the REAL solve this is a no-op: u comes
+    % from Solver B, which is guarded against negativity, so u is in [0,1] and
+    % zeta_0*u(1-u) >= 0 already -- the goldens re-export bit-identically with
+    % this on, which is the proof. It matters for the free-running parallel state
+    % (RecordCflBudget), where u is NOT re-seeded: there u goes negative almost
+    % immediately, mobility follows it negative, diffusion becomes
+    % anti-diffusion, and the solution blows up. NOTE this is a pointwise clamp
+    % of the centred mobility, NOT Bailo's two-point upwind M(x,y) =
+    % zeta_0*(x)^+ (1-y)^+ -- it removes negative mobility but carries no
+    % bound-preservation proof.
+    parameters.PositiveMobility (1,1) logical = false;
 end
 if ~isempty(options)
     for field = string(fieldnames(options)).'
@@ -178,6 +190,15 @@ if parameters.RecordCflBudget
         "RegionShareMax", zeros(1,5), ...       % worst-case approach of each region
         "MatrixShareNoCoh", 0);                 % same for region 1 with cohesion removed
     phibCHFrames = nan(filter.GridZero, numFrames);
+    % Free-running CH state: seeded once from phi_b, then advanced by Solver A
+    % alone and NEVER re-seeded from Solver B. phibCHFrames above is re-seeded
+    % every step, so it can only ever show a one-step (O(dt)) difference; this
+    % one accumulates, which is what the component-elimination design actually
+    % depends on -- there Solver A's phi_b becomes authoritative for the whole run.
+    phibParFrames = nan(filter.GridZero, numFrames);
+    uPar = [];
+    parDiag = struct("tFirstNeg", NaN, "tFirstAbove1", NaN, "tFirstNaN", NaN, ...
+                     "minSeen", Inf, "maxSeen", -Inf, "dead", false);
 end
 
 if parameters.RecordLimitation
@@ -441,6 +462,7 @@ while t < timeStart + simulationTime
     uB = .5*(u(2:end) + u(1:end-1));
 
     lambda = zeta_0*mobility(uB);
+    if parameters.PositiveMobility, lambda = max(lambda, 0); end
     lhsCH = CH0 - dt*(S + sparse(D.Rows, D.Columns, D.Values.*(lambda).', 2*n0, 2*n0));
     rhsCH = [u + dt*rhsBiofilmVolume(1:n0); dpsi_fun(u)];
 
@@ -449,13 +471,38 @@ while t < timeStart + simulationTime
     % uCH = xCH(1:n0);
     muCH = xCH(n0+1:end);
     if parameters.RecordCflBudget
-        % Solver A's own phi_b, normally discarded. Recorded so it can be
-        % compared against the diagnostic sum over biofilm components -- the
-        % consistency condition that gates the component-elimination design in
-        % .claude/plans/2026-08-23-bailo-scheme.md. If these two routes to phi_b
-        % disagree, the mismatch would land entirely in the reconstructed
-        % component.
+        % (a) Solver A's own phi_b for THIS step, normally discarded. Re-seeded
+        % from Solver B every step, so this measures local (one-step) consistency.
         uCHrec = xCH(1:n0);
+
+        % (b) The same operator run in PARALLEL, seeded once and never re-seeded.
+        % Its own state sets its own mobility, so it is a genuinely independent
+        % CH evolution. It shares the reaction source rhsBiofilmVolume, which is
+        % deliberate: the source depends on all components, not just phi_b, so it
+        % cannot be recomputed from uPar -- holding it common isolates the CH
+        % transport discretisation as the sole origin of any drift.
+        % Diagnostic only: nothing here feeds muCH, v_b, or Solver B.
+        if isempty(uPar), uPar = u; end
+        uBpar = .5*(uPar(2:end) + uPar(1:end-1));
+        lambdaPar = zeta_0*mobility(uBpar);
+        if parameters.PositiveMobility, lambdaPar = max(lambdaPar, 0); end
+        lhsPar = CH0 - dt*(S + sparse(D.Rows, D.Columns, D.Values.*(lambdaPar).', 2*n0, 2*n0));
+        if ~parDiag.dead
+            xPar = lhsPar \ [uPar + dt*rhsBiofilmVolume(1:n0); dpsi_fun(uPar)];
+            uPar = xPar(1:n0);
+            % Record WHERE it first leaves the physical range, not just how far
+            % it ends up: the failure mode is the point, since a mobility
+            % zeta_0*u(1-u) that goes negative turns diffusion into
+            % anti-diffusion and the blow-up is then self-reinforcing.
+            parDiag.minSeen = min(parDiag.minSeen, min(uPar));
+            parDiag.maxSeen = max(parDiag.maxSeen, max(uPar));
+            if isnan(parDiag.tFirstNeg)    && any(uPar < 0),  parDiag.tFirstNeg    = t; end
+            if isnan(parDiag.tFirstAbove1) && any(uPar > 1),  parDiag.tFirstAbove1 = t; end
+            if any(~isfinite(uPar))
+                parDiag.tFirstNaN = t;
+                parDiag.dead = true;   % stop wasting a solve per step on NaNs
+            end
+        end
     end
 
     % computing vb
@@ -661,6 +708,7 @@ while t < timeStart + simulationTime
 
         if parameters.RecordCflBudget
             phibCHFrames(:, counter) = uCHrec;
+            phibParFrames(:, counter) = uPar;
         end
 
         if parameters.RecordLimitation
@@ -712,6 +760,8 @@ if parameters.RecordCflBudget
     % adding a Results property would change the class for every consumer.
     results.SimulationData.CflBudget = cflBudget;
     results.SimulationData.PhibCH = phibCHFrames;
+    results.SimulationData.PhibPar = phibParFrames;
+    results.SimulationData.PhibParDiag = parDiag;
 end
 
 if parameters.RecordLimitation
