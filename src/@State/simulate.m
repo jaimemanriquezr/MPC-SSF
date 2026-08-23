@@ -876,6 +876,7 @@ if parameters.RecordCflBudget
     % SimulationData is the existing home for run diagnostics (see :193-221);
     % adding a Results property would change the class for every consumer.
     results.SimulationData.CflBudget = cflBudget;
+    results.SimulationData.BailoNewtonMean = bailoIters/max(bailoSteps, 1);
     results.SimulationData.PhibCH = phibCHFrames;
     results.SimulationData.PhibPar = phibParFrames;
     results.SimulationData.PhibParDiag = parDiag;

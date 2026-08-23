@@ -329,6 +329,41 @@ guaranteed u in [0,1], which is what the component-elimination design needs and 
 cheap pointwise clamp demonstrably cannot deliver (it moved the blow-up from t = 0.163 d to
 t = 2.421 d and no further).
 
+## Phase 2 IN THE SOLVER (2026-08-23): mobility fixed, bounds still violated
+
+`CohesionScheme = "bailo"` implements Eq. (2.1) natively on u in [0,1] in `simulate.m`,
+semismooth Newton, as a drop-in for the "shin" branch (same convection S, same source
+rhsBiofilmVolume, same Psi and kappa). Default stays "shin"; golden bit-identical.
+
+First controlled comparison, N=50 over 0.3 d, FREE-RUNNING Solver A (the parallel state,
+which now runs whichever scheme is selected):
+
+| | shin | bailo |
+|---|---|---|
+| min u | -1.6e+225 | **-1.56e-02** |
+| max u | +3.4e+229 | **+2.24e+04** |
+| first u < 0 | 5.2e-07 d | 0.063 d |
+| first NaN | **0.207 d** | **never** |
+| wall | 16 s | 115 s (**7.2x**) |
+| Newton | - | 0.7 it/step |
+
+**The `(x)^+` works.** The anti-diffusion catastrophe is gone: no NaN, and the negative
+excursion is 227 orders of magnitude smaller.
+
+**Bounds are still violated**, and badly: u reaches 2.24e+04. This is obstacle A, exactly as
+flagged -- Bailo's proof assumes a pure conservation law and we supply a reaction source, so
+growth drives u up with nothing in the flux argument to stop it.
+
+Caveats on the reading: the free-running diagnostic shares `rhsBiofilmVolume` from the REAL
+state, so once uPar drifts the source is inconsistent -- a deliberately harsh stress test, not
+the production path. And `0.7 it/step` averages in the many cells where u ~ 0 and Newton
+converges in zero iterations, so it understates cost where the term is active.
+
+**Verdict: necessary, not sufficient.** For the component elimination to stand up, the source
+needs handling too -- Lie/Strang splitting with a bound-preserving CH substep and a reaction
+substep carrying its own positivity argument. Separate work, not a tweak. And the cost is
+7.2x with no timestep recoverable (X = 1.000).
+
 ## Phase 2 — Substitute our potential and mobility (native (0,1) form)
 
 Same prototype, still standalone, now rewritten in u ∈ [0,1] — no change of variable at
