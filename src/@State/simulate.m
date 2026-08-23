@@ -171,6 +171,21 @@ dpsi_fun = model.CohesionSubModel.PotentialGradient;
 kappaCH = model.CohesionSubModel.Kappa;
 zeta1CH = model.CohesionSubModel.Zeta1;
 bailoIters = 0; bailoSteps = 0; bailoMaxIt = 0; bailoFail = 0; bailoZero = 0;
+% Bailo's discrete operators depend only on n0, dz and S -- all fixed for the run
+% -- so they are built ONCE here. Rebuilding them inside the per-step solve cost
+% 310 us of a 462 us per-step floor at n0 = 501, i.e. 67% of the floor spent
+% reconstructing constant matrices. Measured, not guessed.
+bailoOps = struct.empty;
+if parameters.CohesionScheme == "bailo"
+    n0b = filter.GridZero; dzb = filter.GridSize;
+    eb = ones(n0b,1); emb = ones(n0b-1,1);
+    Lb = spdiags([eb, -2*eb, eb], -1:1, n0b, n0b);
+    Lb(1,1) = -1; Lb(n0b,n0b) = -1;                % ghosts (2.1i)
+    bailoOps = struct("Lap", Lb/dzb^2, ...
+        "Dface", spdiags([-emb, emb], [0 1], n0b-1, n0b)/dzb, ...
+        "Div",   spdiags([-eb, eb], [-1 0], n0b, n0b-1)/dzb, ...
+        "Iden",  speye(n0b), "rows", (1:n0b-1)');
+end
 zeta_0 = model.CohesionSubModel.Zeta0;
 mobility = model.CohesionSubModel.MobilityFunction;
 
@@ -510,8 +525,8 @@ while t < timeStart + simulationTime
         % The (x)^+ is the whole point: it cannot go negative, so the
         % anti-diffusion blow-up of the centred mobility is structurally excluded.
         aSplit = 3*zeta1CH^2/4;      % convexity deficit of Psi; see PLANS.md
-        [uCH, muCH, bailoIt] = solveBailoCH(u, dt, dz, zeta_0, kappaCH, aSplit, ...
-            dpsi_fun, S, rhsBiofilmVolume(1:n0), n0);
+        [uCH, muCH, bailoIt] = solveBailoCH(u, dt, zeta_0, kappaCH, aSplit, ...
+            dpsi_fun, S(1:n0,1:n0), rhsBiofilmVolume(1:n0), n0, bailoOps);
         bailoIters = bailoIters + bailoIt; bailoSteps = bailoSteps + 1;
         bailoMaxIt = max(bailoMaxIt, bailoIt);
         % A step that hits the cap has NOT solved the implicit system -- the same
@@ -543,8 +558,8 @@ while t < timeStart + simulationTime
         % The free-running state must use the SAME scheme, or the diagnostic
         % measures the wrong solver.
         if useBailo && ~parDiag.dead
-            uPar = solveBailoCH(uPar, dt, dz, zeta_0, kappaCH, 3*zeta1CH^2/4, ...
-                dpsi_fun, S, rhsBiofilmVolume(1:n0), n0);
+            uPar = solveBailoCH(uPar, dt, zeta_0, kappaCH, 3*zeta1CH^2/4, ...
+                dpsi_fun, S(1:n0,1:n0), rhsBiofilmVolume(1:n0), n0, bailoOps);
         end
         lhsPar = CH0 - dt*(S + sparse(D.Rows, D.Columns, D.Values.*(lambdaPar).', 2*n0, 2*n0));
         if ~parDiag.dead
@@ -988,7 +1003,7 @@ for j = 1:size(g, 2)
 end
 end
 
-function [u1, mu, iters] = solveBailoCH(u0, dt, dz, zeta0, kappa, aSplit, dpsi, S, src, n0)
+function [u1, mu, iters] = solveBailoCH(u0, dt, zeta0, kappa, aSplit, dpsi, Sblk, src, n0, ops)
 % SOLVEBAILOCH  Bailo et al. (2023) Cahn-Hilliard step, native (0,1) form.
 %
 %   (u1 - u0)/dt + (F_{i+1/2} - F_{i-1/2})/dz = S*u1 + src
@@ -1016,14 +1031,9 @@ function [u1, mu, iters] = solveBailoCH(u0, dt, dz, zeta0, kappa, aSplit, dpsi, 
 % clippings, so active sets are frozen per iterate and one-sided derivatives used.
 
 TOL = 1e-10; MAXIT = 50;
-e  = ones(n0,1);
-Lap = spdiags([e, -2*e, e], -1:1, n0, n0);
-Lap(1,1) = -1; Lap(n0,n0) = -1;            % ghost u_0=u_1, u_{n0+1}=u_{n0}: (2.1i)
-Lap = Lap/dz^2;
-em = ones(n0-1,1);
-Dface = spdiags([-em, em], [0 1], n0-1, n0)/dz;          % cells -> faces
-Div   = spdiags([-e, e], [-1 0], n0, n0-1)/dz;           % faces -> cells, no-flux
-Sblk  = S(1:n0, 1:n0);                                    % convection on u
+% Operators are prebuilt once per run (see bailoOps at the top): rebuilding them
+% here cost 310 us of a 462 us per-step floor at n0 = 501.
+Lap = ops.Lap;  Dface = ops.Dface;  Div = ops.Div;  Iden = ops.Iden;  rr = ops.rows;
 
 w = u0;  iters = MAXIT;
 psiE = aSplit*u0;                                          % Psi_e'(u0), explicit
@@ -1037,12 +1047,11 @@ for k = 1:MAXIT
     dMp_j = -zeta0*max(wi, 0).*double(1 - wj > 0);
     dMm_j =  zeta0*double(wj > 0).*max(1 - wi, 0);
     dMm_i = -zeta0*max(wj, 0).*double(1 - wi > 0);
-    rr = (1:n0-1)';
     dMp = sparse([rr; rr], [rr; rr+1], [dMp_i; dMp_j], n0-1, n0);
     dMm = sparse([rr; rr], [rr; rr+1], [dMm_i; dMm_j], n0-1, n0);
     dF  = spdiags(vp, 0, n0-1, n0-1)*dMp + spdiags(vm, 0, n0-1, n0-1)*dMm ...
         + spdiags(A,  0, n0-1, n0-1)*dV;
-    J = speye(n0)/dt + Div*dF - Sblk;
+    J = Iden/dt + Div*dF - Sblk;
     d = -(J \ R);
     lam = 1; r0 = norm(R, inf);                            % backtracking
     for ls = 1:20
