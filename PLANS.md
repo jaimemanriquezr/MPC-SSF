@@ -156,8 +156,21 @@ the per-step error the lag introduces, and check whether it grows toward the end
 
 ### What it is worth, from Phase 0 measurements (not estimates)
 
-- **Dispersion is 94% of the binding region's sum at N = 500**, and the matrix region's margin
-  is 0.0688, so removing dispersion from the CFL is worth **at most 14.5x** -> dt ~ 4.4e-05 d.
+- **Dispersion is 88.6% of the binding region's sum at N = 500.** Removing it scales the two
+  flowing regions by (1 - 0.886) and leaves regions 1-3 untouched, so the projected shares
+  become matrix 0.0688, enclosed P 0.0693, **enclosed L 0.1345**, flowing P/L 0.1096 --
+  i.e. **enclosed L binds next** and the gain is **7.43x** -> dt ~ 2.2e-05 d.
+  (An earlier version of this entry said 14.5x, taken from the MATRIX margin 0.0688. Wrong
+  region: the gain is set by the LARGEST surviving region, not the smallest.)
+- **What is stiff after that: reactions.** `w_a` is identically zero in the enclosed-liquid
+  region, so the survivors there are `w_v = 2*vbmax`, `w_b` (liquid transfer, plus osmosis
+  `1/tau` unless ImplicitOsmosis), and `w_s = max|L_b| + max|L_e|` with
+  `L = -sum(sigma_L .* mu .* X ./ (S + K_CFL))`. That last one is the Monod
+  liquid-consumption bound and goes stiff as `S -> 0`, i.e. on substrate depletion --
+  dissolved oxygen being the obvious candidate given the measured anoxia (32% of bed samples
+  below 1 mg/L against a 7.0 mg/L day-mean). NOT YET CONFIRMED: the instrumentation records
+  term shares only for the argmax region, so enclosed-L's composition is unmeasured. Job
+  3531640 reports it directly.
 - Then **advection binds**: dz/q = 2.78e-04 d = 24 s, i.e. **93x** current MaxDt in total.
 - The 1/24 d target is a further **150x** beyond that and needs implicit advection, which
   means running 150x past the advective CFL. That is an ACCURACY problem, not a stability
@@ -212,7 +225,7 @@ It is a precedent for the pattern and for gating it behind a default-false optio
 
 1. Implicit dispersion only, behind an option, velocities AND `phiFlowing` lagged. Linear,
    tridiagonal, 9 solves -- cheap only because of that lag, per the correction above.
-   **Measure the achieved dt against the predicted 14.5x** -- if it falls short, the
+   **Measure the achieved dt against the predicted 7.43x** -- if it falls short, the
    lag in (3)/(5) is why, and that is worth knowing before any further work.
 2. Implicit reactions + exchange, local semismooth Newton reusing the Bailo Jacobian pattern.
 3. Implicit advection only if 1/24 d is still wanted after seeing what (1) and (2) give, and
