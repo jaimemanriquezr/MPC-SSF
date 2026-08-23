@@ -666,18 +666,37 @@ while t < timeStart + simulationTime
     fluxWaterOut = porosityBoundaries(2:end).*fluxWater(2:end, :);
 
     %======================= VI. MAIN: update cell values =================================%
+    % ORDERING (time splitting, biofilm resolved first). The biofilm block and the
+    % enclosed water carry NO dispersion -- w_a is zero for those regions and
+    % fluxBiofilm/fluxWater are pure upwind advection -- and every source and flux
+    % for them is evaluated at time n. So both advance from time-n data alone, and
+    % phi_f^{n+1} = 1 - phiBiofilm^{n+1} is known BEFORE the flowing dispersion
+    % solve. Level A of the sketch in PLANS.md: the flowing solve then uses
+    % phi_f^{n+1} rather than the lagged phi_f^n, at no extra cost and still as 9
+    % independent tridiagonals.
     globalBiofilm = globalBiofilm + (dt/dz)*(fluxBiofilmIn - fluxBiofilmOut)./porosityCenters + dt*rhsBiofilm;
-    globalFlowing = globalFlowing + (dt/dz)*(fluxFlowingIn - fluxFlowingOut)./porosityCenters + dt*rhsFlowing;
-    if parameters.ImplicitDispersion
-        globalFlowing = solveImplicitDispersion(globalFlowing, dispersionStrength, ...
-            alpha, phiFlowing, porosityBoundaries, porosityCenters, dz, dt);
-    end
     if parameters.ImplicitOsmosis
         rhsEnclosedWaterB = rhsEnclosedWater./(1 + dt*kosm);
     else
         rhsEnclosedWaterB = rhsEnclosedWater;
     end
     phiW = phiW + (dt/dz)*(fluxWaterIn - fluxWaterOut)./porosityCenters + dt*rhsEnclosedWaterB;
+
+    globalFlowing = globalFlowing + (dt/dz)*(fluxFlowingIn - fluxFlowingOut)./porosityCenters + dt*rhsFlowing;
+    if parameters.ImplicitDispersion
+        % phi_f at n+1, from the blocks just advanced (mirrors :337-340).
+        phiBiofilmNew = sum(globalBiofilm(:, 1:kP), 2)/densityP + phiW ...
+            + sum(globalBiofilm(:, kP+1:kP+kP), 2)/densityP ...
+            + sum(globalBiofilm(:, kP+kP+1:kP+kP+kL), 2)/densityL;
+        phiFlowingNew = 1 - phiBiofilmNew;
+        % dispersionStrength = |v_f| * (1 - phiBiofilm at faces), and that second
+        % factor IS phi_f at the faces, so it moves to n+1 too. Only |v_f| stays at
+        % time n, since it needs Solver A.
+        phiFlowingFaceNew = .5*(phiFlowingNew(2:end) + phiFlowingNew(1:end-1));
+        dispersionStrengthNew = abs(velFlowing(2:end-2)).*phiFlowingFaceNew(1:end-1);
+        globalFlowing = solveImplicitDispersion(globalFlowing, dispersionStrengthNew, ...
+            alpha, phiFlowingNew, porosityBoundaries, porosityCenters, dz, dt);
+    end
 
     %========== CHECK IF CONCENTRATIONS ARE NEGATIVE ============%
     % Underflow floor: a sink acting on an exactly-zero pool (r6 consuming PG
@@ -848,16 +867,17 @@ function g = solveImplicitDispersion(g, S, alpha, phiFlowing, poroB, poroC, dz, 
 % diag(1./phiFlowing) belongs inside the operator. phiFlowing and S are lagged,
 % which is what keeps this linear.
 %
-% Components are uncoupled ONLY BECAUSE phiFlowing is lagged. phiFlowing is
-% 1 - phiBiofilm and phiBiofilm sums all 13 biofilm-block components plus
-% enclosed water (:337-340), so a genuinely implicit dispersion would couple the
-% flowing block to 14 further unknowns per cell -- a block-banded 23-per-cell
-% system, not 9 scalar tridiagonals. Under the lag only alpha differs between
-% components, so the operator is assembled once and rescaled. Tridiagonal.
+% Components couple through phiFlowing, which is 1 - phiBiofilm and so sums all 13
+% biofilm-block components plus enclosed water (:337-340). They decouple here only
+% because phiFlowing is supplied as a KNOWN vector -- at n+1 under the time
+% splitting, since the biofilm block carries no dispersion and is advanced first.
+% Given that, only alpha differs between components, so the operator is assembled
+% once and rescaled. Tridiagonal.
 %
-% The lag's error scales as d(1/phi_f)/dphi_f = -1/phi_f^2, which is ~1.35 at
-% phi_f ~ 0.86 but DIVERGES as the filter clogs and phi_f -> 0. Expect this
-% treatment to degrade late in a clogging run.
+% A fully implicit variant (needed only if the biofilm block also goes implicit)
+% would couple the flowing block to 14 further unknowns per cell -- but only
+% through the SCALAR phi_f, so that coupling is rank one and is best handled by
+% carrying phi_f as one auxiliary unknown (10 per cell, not 23). See PLANS.md.
 nC = size(g, 1);
 if nC < 3, return, end
 
