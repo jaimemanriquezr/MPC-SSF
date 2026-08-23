@@ -370,11 +370,20 @@ fixed N:
 roughly fixed and so dilutes as the mesh grows. N=1615 is therefore ~2.1x a current N=500
 run, not 5.6x.)
 
-**Consequence worth acting on: the PUBLISHED kappa = 1e-7 is now affordable at a genuinely
-resolved mesh.** Previously N=1615 cost ~34x an N=500 run (N^3 under explicit dispersion),
-which is why kappa=1e-6 at N=500 was recommended instead. At 5.6x it is a routine cluster
-job, so the manuscript need not defend a 10x change in kappa. Advective CFL there is
-dz/q = 8.6e-05 d = 7 s.
+**SETTLED 2026-08-23: kappa = 1e-6 at N = 500 is the production configuration.** Jaime:
+*"We can change kappa to our discretion so 1e-6 is perfectly fine."* kappa is a modelling
+parameter, not a measured one, so there is no obligation to keep the published 1e-7 and no
+reviewer-facing cost to changing it.
+
+That closes the N=1615 question. For the record, implicit dispersion had made kappa = 1e-7 at
+N = 1615 affordable (~2.1x a current N=500 run, against ~34x under explicit dispersion, with
+dz/ell = 1.00 and advective CFL dz/q = 8.6e-05 d) -- but it is not needed. At kappa = 1e-6,
+N = 500 already gives dz/ell = 1.02, i.e. a resolved interface.
+
+**So the value of implicit dispersion is now purely throughput at the production mesh**, and
+that is substantial: 7.11x fewer steps and 4.97x wall at N=500, which takes an E3-scale run
+from ~7 h to ~1.4 h. That matters directly, because every experiment has to be re-run after
+the kappa fix.
 
 Remaining open item, if dt ever becomes painful again: advection is 79% of the binding sum
 by N=1615, and implicit upwind advection is bidiagonal -- structurally simpler than
