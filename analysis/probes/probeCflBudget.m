@@ -32,6 +32,7 @@ arguments
     opts.MatureDays (1,1) double = 3
     opts.MaxDt (1,1) double = 3e-6
     opts.Respiration (1,1) double = 0.55
+    opts.CohesionScheme (1,1) string = "shin"
     opts.PositiveMobility (1,1) logical = false
     opts.Save (1,1) logical = true
 end
@@ -78,7 +79,7 @@ r = simulate(State(f, m), InflowConcentrations=inflow, ...
     SimulationTime=opts.MatureDays, TimeStep="adaptive", ...
     AdaptiveInitialDt=1e-8, AdaptiveMaxDt=opts.MaxDt, ...
     FrameNumber=24, ImplicitOsmosis=true, RecordCflBudget=true, ...
-    PositiveMobility=opts.PositiveMobility, Quiet=true);
+    PositiveMobility=opts.PositiveMobility, CohesionScheme=opts.CohesionScheme, Quiet=true);
 wall = toc(t0);
 
 b = r.SimulationData.CflBudget;
@@ -114,6 +115,21 @@ fprintf("      (matrix/binding scales ~dz^-2, so x25 from N=100 to N=500)\n");
 fprintf("    mean share of that region's sum:\n");
 for k = 1:4
     fprintf("      %-28s %6.2f%%\n", terms(k), 100*b.TermSums(k)/n);
+end
+
+if opts.CohesionScheme == "bailo"
+    bn = r.SimulationData.BailoNewton;
+    fprintf("\n0h  Bailo semismooth Newton cost\n");
+    fprintf("      mean %.2f it/step   max %d   non-converged %.3f%%   zero-iter %.1f%%\n", ...
+        bn.Mean, bn.Max, 100*bn.NonConvergedFrac, 100*bn.ZeroIterFrac);
+    fprintf("      (zero-iter steps are those where the residual already met tolerance,\n");
+    fprintf("       i.e. nothing was happening anywhere; a high fraction means the mean\n");
+    fprintf("       understates the cost where the term is actually active)\n");
+    if bn.NonConvergedFrac > 0
+        fprintf("      *** %d steps hit the 50-iteration cap: those did NOT solve the\n", ...
+            round(bn.NonConvergedFrac*bn.Steps));
+        fprintf("          implicit system. Treat all results from this run as suspect. ***\n");
+    end
 end
 
 fprintf("\n0g  w_s spread ACROSS CELLS (is a few depleted cells setting dt?)\n");

@@ -170,7 +170,7 @@ sigmaLiquids = model.StoichiometricMatrixLiquids;
 dpsi_fun = model.CohesionSubModel.PotentialGradient;
 kappaCH = model.CohesionSubModel.Kappa;
 zeta1CH = model.CohesionSubModel.Zeta1;
-bailoIters = 0; bailoSteps = 0;
+bailoIters = 0; bailoSteps = 0; bailoMaxIt = 0; bailoFail = 0; bailoZero = 0;
 zeta_0 = model.CohesionSubModel.Zeta0;
 mobility = model.CohesionSubModel.MobilityFunction;
 
@@ -513,6 +513,12 @@ while t < timeStart + simulationTime
         [uCH, muCH, bailoIt] = solveBailoCH(u, dt, dz, zeta_0, kappaCH, aSplit, ...
             dpsi_fun, S, rhsBiofilmVolume(1:n0), n0);
         bailoIters = bailoIters + bailoIt; bailoSteps = bailoSteps + 1;
+        bailoMaxIt = max(bailoMaxIt, bailoIt);
+        % A step that hits the cap has NOT solved the implicit system -- the same
+        % silent failure that made the Picard prototype's gate tables meaningless.
+        % Count it rather than averaging it away.
+        bailoFail = bailoFail + (bailoIt >= 50);
+        bailoZero = bailoZero + (bailoIt == 0);
     else
         xCH = lhsCH \ rhsCH;
         uCH = xCH(1:n0);
@@ -876,7 +882,10 @@ if parameters.RecordCflBudget
     % SimulationData is the existing home for run diagnostics (see :193-221);
     % adding a Results property would change the class for every consumer.
     results.SimulationData.CflBudget = cflBudget;
-    results.SimulationData.BailoNewtonMean = bailoIters/max(bailoSteps, 1);
+    results.SimulationData.BailoNewton = struct( ...
+        "Mean", bailoIters/max(bailoSteps, 1), "Max", bailoMaxIt, ...
+        "NonConvergedFrac", bailoFail/max(bailoSteps, 1), ...
+        "ZeroIterFrac", bailoZero/max(bailoSteps, 1), "Steps", bailoSteps);
     results.SimulationData.PhibCH = phibCHFrames;
     results.SimulationData.PhibPar = phibParFrames;
     results.SimulationData.PhibParDiag = parDiag;
