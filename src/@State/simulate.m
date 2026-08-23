@@ -181,10 +181,28 @@ if parameters.CohesionScheme == "bailo"
     eb = ones(n0b,1); emb = ones(n0b-1,1);
     Lb = spdiags([eb, -2*eb, eb], -1:1, n0b, n0b);
     Lb(1,1) = -1; Lb(n0b,n0b) = -1;                % ghosts (2.1i)
+    rrb = (1:n0b-1)';
+    % Analytic Psi''. Psi'(u) = u^2(u - 1.5*Zeta1) is fixed up to Zeta1, so
+    % Psi''(u) = 3u(u - Zeta1). Replaces a two-evaluation finite difference that
+    % also carried its own truncation error.
+    dpsi2 = @(u) 3*u.*(u - zeta1CH);
+    % Verify it against the model's own handle rather than trusting the algebra:
+    % PotentialGradient is rebuilt from Zeta1 in the constructor, and the legacy
+    % .mat presets store a baked handle, so they could in principle disagree.
+    uchk = linspace(1e-3, 0.999, 97)';  hchk = 1e-6;
+    fdchk = (dpsi_fun(uchk + hchk) - dpsi_fun(uchk - hchk))/(2*hchk);
+    relerr = max(abs(dpsi2(uchk) - fdchk)./max(abs(fdchk), 1e-12));
+    if relerr > 1e-6
+        error("simulate:bailoPotentialCurvature", ...
+            "analytic Psi'' disagrees with the model's PotentialGradient " + ...
+            "(max rel %.3e). Zeta1 = %g. Check the preset's handle.", relerr, zeta1CH);
+    end
     bailoOps = struct("Lap", Lb/dzb^2, ...
         "Dface", spdiags([-emb, emb], [0 1], n0b-1, n0b)/dzb, ...
         "Div",   spdiags([-eb, eb], [-1 0], n0b, n0b-1)/dzb, ...
-        "Iden",  speye(n0b), "rows", (1:n0b-1)');
+        "Iden",  speye(n0b), "rows", rrb, ...
+        "Ji", [rrb; rrb], "Jj", [rrb; rrb+1], ...   % fixed Jacobian sparsity
+        "dpsi2", dpsi2);
 end
 zeta_0 = model.CohesionSubModel.Zeta0;
 mobility = model.CohesionSubModel.MobilityFunction;
@@ -1033,24 +1051,27 @@ function [u1, mu, iters] = solveBailoCH(u0, dt, zeta0, kappa, aSplit, dpsi, Sblk
 TOL = 1e-10; MAXIT = 50;
 % Operators are prebuilt once per run (see bailoOps at the top): rebuilding them
 % here cost 310 us of a 462 us per-step floor at n0 = 501.
-Lap = ops.Lap;  Dface = ops.Dface;  Div = ops.Div;  Iden = ops.Iden;  rr = ops.rows;
+Lap = ops.Lap;  Dface = ops.Dface;  Div = ops.Div;  Iden = ops.Iden;
+Ji = ops.Ji;  Jj = ops.Jj;  dpsi2 = ops.dpsi2;
 
 w = u0;  iters = MAXIT;
 psiE = aSplit*u0;                                          % Psi_e'(u0), explicit
 for k = 1:MAXIT
     [R, A, ~, vp, vm] = bres(w);
     if norm(R, inf) < TOL/max(dt, realmin), iters = k-1; break, end
-    dmu  = spdiags(dpsiPrime(w) + aSplit, 0, n0, n0) - kappa*Lap;
+    dmu  = spdiags(dpsi2(w) + aSplit, 0, n0, n0) - kappa*Lap;
     dV   = -Dface*dmu;
     wi = w(1:end-1); wj = w(2:end);
     dMp_i =  zeta0*double(wi > 0).*max(1 - wj, 0);
     dMp_j = -zeta0*max(wi, 0).*double(1 - wj > 0);
     dMm_j =  zeta0*double(wj > 0).*max(1 - wi, 0);
     dMm_i = -zeta0*max(wj, 0).*double(1 - wi > 0);
-    dMp = sparse([rr; rr], [rr; rr+1], [dMp_i; dMp_j], n0-1, n0);
-    dMm = sparse([rr; rr], [rr; rr+1], [dMm_i; dMm_j], n0-1, n0);
-    dF  = spdiags(vp, 0, n0-1, n0-1)*dMp + spdiags(vm, 0, n0-1, n0-1)*dMm ...
-        + spdiags(A,  0, n0-1, n0-1)*dV;
+    % diag(vp)*dMp + diag(vm)*dMm is bidiagonal with the SAME sparsity as either
+    % term, so combine the coefficients first and build ONE sparse matrix on the
+    % precomputed index vectors, instead of two sparse() calls plus two diagonal
+    % multiplies. Row-scaling of dV uses implicit expansion for the same reason.
+    dF  = sparse(Ji, Jj, [vp.*dMp_i + vm.*dMm_i; vp.*dMp_j + vm.*dMm_j], n0-1, n0) ...
+        + A.*dV;
     J = Iden/dt + Div*dF - Sblk;
     d = -(J \ R);
     lam = 1; r0 = norm(R, inf);                            % backtracking
@@ -1074,10 +1095,4 @@ u1 = w;
         R  = (v - u0)/dt + Div*F - Sblk*v - src;
     end
 
-    function d = dpsiPrime(v)
-        % d/du of Psi'(u) = u^2(u - 1.5*zeta1). Recovered by differencing so this
-        % stays correct if the preset's PotentialGradient handle ever changes.
-        h = 1e-7;
-        d = (dpsi(v + h) - dpsi(v - h))/(2*h);
-    end
 end
