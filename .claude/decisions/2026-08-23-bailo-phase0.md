@@ -1,5 +1,10 @@
 # Bailo Phase 0 — is the scheme worth building?
 
+**Nothing of the Bailo scheme is implemented.** Every number below measures the EXISTING
+solver. Phase 0 exists to decide whether building Bailo is justified; Bailo results would be
+the Phase 1 gates (mass, bounds, monotone energy, second-order accuracy, bounds holding at
+100x the explicit dt limit) and none have been run.
+
 Status: **in progress.** 0d complete; 0a–0c (job 3531534) and 0e (job 3531536) running.
 Plan: `.claude/plans/2026-08-23-bailo-scheme.md`. Probe: `analysis/probes/probeCflBudget.m`.
 
@@ -47,6 +52,32 @@ empirical support. Bailo must now be justified either by 0c (a real speed case) 
 structural component-elimination design, whose own precondition is 0e.
 
 ## 0a–0c, 0e — pending
+
+### 0e — the two routes to phi_b differ by O(dt) only
+
+Measured quantity is literally `|u^{n+1} - sum_i phi_i|`: `uCHrec = xCH(1:n0)` is Solver A's
+own phi_b (the vector the solver normally discards), against `biofilmFractionLocal` =
+`W_enc/rho_L + sum_particles (X_mat + X_enc)/rho_P + sum_liquids S_enc/rho_L` on cells 1..n0.
+
+**Both are sampled at the same time level.** Verified in the loop, not assumed:
+`globalBiofilm` is advanced to n+1 at `simulate.m:605`; the frame writes those same
+concentrations at `:654`; `uCHrec` is written at `:663` from `:458` in the same iteration.
+This mattered — a one-step offset would produce O(dt) drift too, and would have passed the
+scaling test below while measuring nothing.
+
+| MaxDt | max abs diff |
+|---|---|
+| 3e-6 | 2.7281e-05 |
+| 7.5e-7 | 6.8254e-06 |
+
+Ratio **3.997** against a dt ratio of 4: first order, so a genuine operator-splitting
+inconsistency that converges away, not a structural difference. The two routes are the same
+equation, and the component-elimination design is well posed.
+
+Note the probe's original fixed 1e-6 threshold was the wrong test and has been removed: an
+O(dt) mismatch is expected at any finite dt, so the scaling is the criterion.
+
+### 0a–0c
 
 Jobs 3531534 (N=100, N=500) and 3531536 (0e, N=100), all κ=1e-6, matured 3 d so the
 supernatant carries biofilm. A clean start makes 0c and 0e null tests: at 0.3 d

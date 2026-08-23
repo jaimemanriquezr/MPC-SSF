@@ -1,6 +1,13 @@
 function plotKappaPhase0(opts)
 % PLOTKAPPAPHASE0  Figures for the 2026-08-23 kappa fix and Bailo Phase 0.
 %
+% NOTE: none of these are Bailo results. The Bailo scheme is NOT implemented.
+% Every figure measures the EXISTING solver -- Phase 0 exists precisely to decide
+% whether building Bailo is justified, and on this evidence three of its four
+% justifications are dead. Bailo results would be the Phase 1 gates (mass,
+% bounds, monotone energy, second-order accuracy, and bounds holding at 100x the
+% explicit dt limit); none have been run.
+%
 %   plotKappaPhase0
 %
 % Produces, into analysis/results/figures/:
@@ -67,7 +74,9 @@ for j = 1:4, b(j).DisplayName = names(j); end
 xlabel("cells N"); ylabel("share of the binding region's sum");
 title("What the binding region is made of"); ylim([0 1]);
 legend(Location="southoutside", FontSize=8, NumColumns=2); grid on; box on
-title(tl, "Bailo Phase 0: CFL budget (\kappa = 10^{-6}, \zeta_0 = 10^2, 3 d, active regime)");
+title(tl, "CURRENT scheme: CFL budget (\kappa = 10^{-6}, \zeta_0 = 10^2, 3 d, active regime)");
+subtitle(tl, "Bailo Phase 0 decision data -- the Bailo scheme is NOT implemented; nothing here is a Bailo result", ...
+    FontSize=9, Interpreter="none");
 exportgraphics(f1, fullfile(opts.OutDir, "fig1_cfl_margins.png"), Resolution=200);
 
 % ======================= FIG 2: cohesion's role ==============================
@@ -93,7 +102,8 @@ plot(Ns, 100*capF, "-o", Color=[0.2 0.4 0.8]);
 set(gca, XScale="log"); xticks(Ns); xticklabels(string(Ns));
 xlabel("cells N"); ylabel("% of steps pinned to MaxDt");
 title("CFL only binds at fine meshes"); ylim([0 100]); grid on; box on
-title(tl, "Cohesion is dominant in v_b yet irrelevant to dt");
+title(tl, "Current scheme: cohesion is dominant in v_b yet irrelevant to dt");
+subtitle(tl, "measured on the EXISTING solver; Bailo is unimplemented", FontSize=9, Interpreter="none");
 exportgraphics(f2, fullfile(opts.OutDir, "fig2_cohesion_role.png"), Resolution=200);
 
 % ===================== FIG 3: 0e first-order dt scaling ======================
