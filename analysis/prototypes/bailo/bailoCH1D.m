@@ -48,6 +48,7 @@ arguments
     opts.TFinal (1,1) double = NaN       % NaN -> 20*eps^2 (paper's choice)
     opts.Potential (1,1) string = "deepquench"   % or "ssf"
     opts.Zeta1 (1,1) double = 1e-2       % only for Potential="ssf"
+    opts.Solver (1,1) string = "newton"  % "newton" (semismooth) or "picard"
     opts.PicardTol (1,1) double = 1e-12
     opts.PicardMax (1,1) double = 100
     opts.Quiet (1,1) logical = false
@@ -66,9 +67,10 @@ switch opts.Potential
     case "deepquench"
         % H(phi) = (1-phi^2)/2 is CONCAVE, so the splitting is Hc = 0,
         % He = phi^2/2 - 1/2, both convex. Hence Hc' = 0 and He' = phi.
-        Hc_p = @(p) zeros(size(p));
-        He_p = @(p) p;
-        Hfun = @(p) (1 - p.^2)/2;
+        Hc_p  = @(p) zeros(size(p));
+        Hc_pp = @(p) zeros(size(p));
+        He_p  = @(p) p;
+        Hfun  = @(p) (1 - p.^2)/2;
         phi0 = -ones(M,1);
         inner = abs(x) <= pi*opts.Eps/2;
         phi0(inner) = cos(x(inner)/opts.Eps) - 1;
@@ -80,8 +82,10 @@ switch opts.Potential
         z1 = opts.Zeta1;  a = 3*z1^2/4;
         u_of = @(p) (1 + p)/2;
         % dH/dphi_B = Psi'(u)/2
-        Hc_p = @(p) ( u_of(p).^2.*(u_of(p) - 1.5*z1) + a*u_of(p) )/2;
-        He_p = @(p) ( a*u_of(p) )/2;
+        Hc_p  = @(p) ( u_of(p).^2.*(u_of(p) - 1.5*z1) + a*u_of(p) )/2;
+        % d/dphi_B of the above: chain rule through u = (1+phi_B)/2 gives the /4
+        Hc_pp = @(p) ( 3*u_of(p).*(u_of(p) - z1) + a )/4;
+        He_p  = @(p) ( a*u_of(p) )/2;
         Hfun = @(p) u_of(p).^4/4 - 0.5*z1*u_of(p).^3;
         phi0 = -ones(M,1);
         inner = abs(x) <= pi*opts.Eps/2;
@@ -99,6 +103,13 @@ Lap = Lap/dx^2;
 
 Mfun = @(xx, yy) opts.M0 * max(1 + xx, 0) .* max(1 - yy, 0);
 
+% Face gradient (M-1 x M) and flux divergence (M x M-1). Div's columns each carry
+% +1 and -1, so sum(Div*F) == 0 exactly: mass conservation is structural, and the
+% no-flux ends of (2.1h) are simply the absent columns.
+em = ones(M-1,1);
+Dface = spdiags([-em, em], [0 1], M-1, M)/dx;
+Div   = spdiags([-ones(M,1), ones(M,1)], [-1 0], M, M-1)/dx;
+
 phi = phi0;
 nSteps = max(1, round(TFinal/dt));
 energy = nan(nSteps+1, 1);  mass = energy;  minphi = energy;  maxphi = energy;
@@ -109,8 +120,57 @@ mass(1) = sum(phi)*dx;  minphi(1) = min(phi);  maxphi(1) = max(phi);
 for n = 1:nSteps
     phin = phi;
     Hep = He_p(phin);                       % explicit half, frozen this step
-    w = phin;                                % Picard iterate
+    w = phin;                                % iterate
     converged = false;
+    if opts.Solver == "newton"
+    % ---- semismooth Newton -------------------------------------------------
+    % The residual is non-smooth through (u)^+/(u)^- and through the (.)^+ in the
+    % mobility, so this is a semismooth Newton: at each iterate the active sets
+    % (sign of u, and whether 1+x or 1-y is clipped) are frozen and the
+    % corresponding one-sided derivatives used. Standard, and locally superlinear.
+    for k = 1:opts.PicardMax
+        [R, A, ~, up, um] = residual(w, phin, Hc_p, Hep, eps2, Lap, ...
+                                         Dface, Div, Mfun, dt);
+        if norm(R, inf) < opts.PicardTol/dt, converged = true; picard(n) = k-1; break, end
+
+        % d(xi)/dw and hence d(uface)/dw
+        dXi = spdiags(Hc_pp(w), 0, M, M) - eps2*Lap;
+        dU  = -Dface*dXi;                                   % (M-1) x M
+
+        % d(mobility)/dw. Mp = M0 (1+w_i)^+ (1-w_{i+1})^+, Mm = M0 (1+w_{i+1})^+ (1-w_i)^+
+        wi = w(1:end-1); wj = w(2:end);
+        gi = double(1 + wi > 0); gj = double(1 + wj > 0);
+        hi = double(1 - wi > 0); hj = double(1 - wj > 0);
+        dMp_i =  opts.M0 * gi .* max(1 - wj, 0);
+        dMp_j = -opts.M0 * max(1 + wi, 0) .* hj;
+        dMm_j =  opts.M0 * gj .* max(1 - wi, 0);
+        dMm_i = -opts.M0 * max(1 + wj, 0) .* hi;
+        rows = (1:M-1)';
+        dMp = sparse([rows; rows], [rows; rows+1], [dMp_i; dMp_j], M-1, M);
+        dMm = sparse([rows; rows], [rows; rows+1], [dMm_i; dMm_j], M-1, M);
+
+        % F = Mp*u^+ + Mm*u^-, so dF = u^+ dMp + u^- dMm + A dU with A the
+        % upwind coefficient already selected by sign(u).
+        dF = spdiags(up, 0, M-1, M-1)*dMp + spdiags(um, 0, M-1, M-1)*dMm ...
+           + spdiags(A,  0, M-1, M-1)*dU;
+        J = speye(M)/dt + Div*dF;
+
+        delta = -(J \ R);
+        % Backtracking: the semismooth Jacobian can overshoot when an active set
+        % flips, and an overshoot here can push w outside [-1,1], which is exactly
+        % what the scheme exists to prevent.
+        lam = 1; r0 = norm(R, inf);
+        for ls = 1:20
+            wt = w + lam*delta;
+            Rt = residual(wt, phin, Hc_p, Hep, eps2, Lap, Dface, Div, Mfun, dt);
+            if norm(Rt, inf) < (1 - 1e-4*lam)*r0, break, end
+            lam = lam/2;
+        end
+        w = w + lam*delta;
+        if norm(lam*delta, inf) < opts.PicardTol, converged = true; picard(n) = k; break, end
+    end
+    else
+    % ---- Picard: mobility and upwind direction lagged -----------------------
     for k = 1:opts.PicardMax
         % lagged mobility + lagged upwind direction -> linear system in wNew
         xi_w = Hc_p(w) - Hep - eps2*(Lap*w);
@@ -123,10 +183,8 @@ for n = 1:nSteps
         % (Hc' lagged for the "ssf" potential; identically zero for deepquench)
         % build the operator: div(F) acting on the unknown v, with the
         % eps2*Lap part of xi kept implicit and the Hc'/He' part moved to rhs
-        Dface = spdiags([-e(1:M-1), e(1:M-1)], [0 1], M-1, M)/dx;   % face gradient
         Uop = -Dface*(-eps2*Lap);                 % uface as a linear map on v
         Fop = spdiags(Aface, 0, M-1, M-1)*Uop;
-        Div = spdiags([-e, e], [-1 0], M, M-1)/dx;  % no-flux ends, (2.1h)
         Aop = speye(M)/dt + Div*Fop;
         % constant part of xi (Hc'(w) - He'(phi^n)) also drives the flux
         xi_const = Hc_p(w) - Hep;
@@ -137,6 +195,7 @@ for n = 1:nSteps
         dw = norm(wNew - w, inf);
         w = wNew;
         if dw < opts.PicardTol, converged = true; picard(n) = k; break, end
+    end
     end
     if ~converged, picard(n) = opts.PicardMax; end
     phi = w;
@@ -171,6 +230,19 @@ if ~opts.Quiet
     if ~isempty(phiInf), fprintf(" | err vs phi_inf %.3e", out.errSteady); end
     fprintf("\n");
 end
+end
+
+function [R, A, uface, up, um] = residual(w, phin, Hc_p, Hep, eps2, Lap, Dface, Div, Mfun, dt)
+% Eq. (2.1a) written as a residual in the unknown w = phi^{n+1}.
+xi    = Hc_p(w) - Hep - eps2*(Lap*w);
+uface = -Dface*xi;
+up    = max(uface, 0);
+um    = min(uface, 0);
+Mp    = Mfun(w(1:end-1), w(2:end));
+Mm    = Mfun(w(2:end),   w(1:end-1));
+F     = Mp.*up + Mm.*um;
+A     = Mp.*(uface >= 0) + Mm.*(uface < 0);   % upwind coefficient for the Jacobian
+R     = (w - phin)/dt + Div*F;
 end
 
 function E = discreteEnergy(phi, Hfun, eps2, dx)

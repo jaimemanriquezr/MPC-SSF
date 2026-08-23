@@ -284,6 +284,51 @@ scheme.
   Gate 5 can be attempted. The upwind max/min makes the residual non-smooth, so this wants
   a semismooth Newton rather than a plain one.
 
+## Phase 1 COMPLETE with semismooth Newton (2026-08-23) — all five gates pass
+
+Replacing lagged Picard with a semismooth Newton (active sets frozen per iterate for the
+sign of u and for the clipping in (1+x)^+, (1-y)^+; backtracking line search) settles every
+open question, and changes the results qualitatively rather than just converging faster.
+
+| | Picard | **Newton** |
+|---|---|---|
+| iterations, M=50/100/200/400/800 | 3.4 / 3.9 / 28.9 / **fail** / **fail** | **1.8 / 2.1 / 3.1 / 3.5 / 4.2** |
+| mass drift | ~1e-12 | **1.2e-16** |
+| bound violation | ~4e-11 | **exactly 0** |
+| energy increase | ~1e-13 | **exactly 0** |
+
+The small violations under Picard were NOT roundoff, as first guessed — they were incomplete
+convergence. With a converged solve the theorems hold **exactly**.
+
+**Gate 4 (second order): PASS.** The drop to 1.747 at M=800 was real but temporal: the scheme
+is first order in time, so err = C1*dx^2 + C2*dt and refining dx alone stalls on the dt term.
+At M=800 refining dt gives err 3.9776e-06 -> 3.4625e-06 -> 3.3817e-06 (dt, dt/4, dt/16), and
+the M=400->800 order recovers **1.747 -> 1.935**.
+
+**Gate 5 (unconditionality): PASS, and now genuinely tested.**
+
+| dt | mass | bounds | max dE | Newton it | err |
+|---|---|---|---|---|---|
+| 1x    | 1.50e-16 | 0 | 0 | 3.1  | 5.045e-05 |
+| 10x   | 4.49e-16 | 0 | 0 | 6.8  | 2.145e-04 |
+| 100x  | 1.50e-16 | 0 | 0 | 21.5 | 7.370e-02 |
+| 1000x | 1.50e-16 | 0 | 0 | 35.0 | 1.536e-01 |
+
+Bounds and energy hold **exactly** at 1000x dt with Newton converged. Note the usable dt is
+limited by ACCURACY, not stability: error grows first-order, 5.0e-05 -> 2.1e-04 at 10x.
+
+**Cost.** 2-4 Newton iterations per step at production-like meshes, each one linear solve plus
+Jacobian assembly, against the present Solver A's single linear solve: roughly **3-5x Solver
+A**, not the ~30x the Picard prototype suggested. Whether that matters depends on Solver A's
+share of a full step, which is unmeasured.
+
+**What this does and does not change.** Bailo works, and would work at N=500. It still buys
+NO timestep (X = 1.000 at every mesh, measured independently of the solver), and the 1/24 d
+target is unreachable by CH work of any kind. Its value remains exactly one thing:
+guaranteed u in [0,1], which is what the component-elimination design needs and which the
+cheap pointwise clamp demonstrably cannot deliver (it moved the blow-up from t = 0.163 d to
+t = 2.421 d and no further).
+
 ## Phase 2 — Substitute our potential and mobility (native (0,1) form)
 
 Same prototype, still standalone, now rewritten in u ∈ [0,1] — no change of variable at
