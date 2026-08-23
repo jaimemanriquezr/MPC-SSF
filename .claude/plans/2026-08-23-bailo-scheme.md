@@ -212,6 +212,40 @@ which is what the proofs need.
 Bound violations sit at the same order as the mass drift and the operator's conditioning,
 so they read as solve roundoff, not structural. Energy is monotone to roundoff.
 
+### CORRECTION (same day): Picard fails at M >= 400, invalidating part of the above
+
+Measured convergence of the lagged-Picard iteration itself (eps = 0.1, dt = 1e-3, cap 2000):
+
+| M | mean iters | max | converged? |
+|---|---|---|---|
+| 50  | 3.4    | 10   | yes |
+| 100 | 3.9    | 17   | yes |
+| 200 | 28.9   | 279  | yes |
+| 400 | 2000   | 2000 | **NO** |
+| 800 | 2000   | 2000 | **NO** |
+
+Consequences, correcting the tables that follow:
+
+- **Gate 4's M = 400 and M = 800 rows are not solutions of the implicit system.** The orders
+  1.913 and 1.222 there are meaningless, and the "error floor" explanation first offered for
+  the 1.222 is wrong — a longer-T test at M = 800 made the error *grow*
+  (5.74e-06 -> 7.10e-06 -> 1.15e-05 -> 2.07e-05 as T went 1x -> 8x), which refutes leftover
+  transient and is instead consistent with a non-converged iterate wandering. Only M = 50,
+  100, 200 are valid, giving orders 1.903 and 2.037: consistent with second order, on two
+  refinements rather than four.
+- **The ~29-34 solves/step cost figure holds only at M <= 200.**
+- Gate 5 was already known to be untested for this reason; it is the same failure.
+
+The contraction factor of a lagged-mobility fixed point degrades as dt times the operator
+norm, and the CH operator norm goes as eps2/dx^4, so halving dx worsens contraction ~16x.
+The observed 3.4 -> 3.9 -> 28.9 -> divergence matches that.
+
+**This makes Newton a prerequisite, not an optimisation.** The prototype cannot currently
+reach the meshes the model actually runs at: N = 500 here is past M = 400. Nothing further
+about the scheme's accuracy, its unconditional stability, or its true cost can be measured
+until the iteration is replaced -- semismooth, because the upwind max/min makes the residual
+non-smooth.
+
 **Gate 4 (second order) NOT YET ESTABLISHED.** Convergence to the exact steady state (4.1):
 
 | M | dx | err | order |
