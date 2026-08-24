@@ -71,6 +71,15 @@ arguments
     % Solver A's Cahn-Hilliard scheme.
     %   "shin"  (default) the inherited Shin/Jeong/Kim semi-implicit scheme:
     %           one linear solve, centred mobility, Psi' fully explicit.
+    %   "matched" Solver A's u-row rewritten as the EXACT flux Solver B applies
+    %           to every component: F = upwind(u^n)*v_b, porosity-weighted, with
+    %           the transported quantity at time n (as Solver B has it) and v_b
+    %           implicit through mu. Because every biofilm component shares v_b
+    %           and phi_b is a linear combination of them, Solver A's phi_b then
+    %           equals Solver B's component sum to ROUNDOFF -- verified at
+    %           1.11e-16 over 1.03e6 steps before this was built. Removes the
+    %           11.6%/15.8% drift, at the cost of Bailo's bound preservation
+    %           (the mobility is upwind u, not zeta_0 (x)^+ (1-y)^+).
     %   "bailo" Bailo et al. (2023) in native (0,1) form: upwinded degenerate
     %           mobility M(x,y) = zeta_0 (x)^+ (1-y)^+ and convex-split potential
     %           Psi_c = Psi + a u^2/2, Psi_e = a u^2/2 with a = 3*Zeta1^2/4,
@@ -84,6 +93,15 @@ arguments
     % convection and a reaction source, so the proof does not strictly transfer --
     % run with RecordCflBudget to measure whether u actually stays in [0,1].
     parameters.CohesionScheme (1,1) string = "shin";
+    % Treat Psi' with Bailo's convex splitting in the shin/matched schemes, to
+    % test whether that -- rather than the flux form -- is what makes Bailo's
+    % free-running phi_b drift further from Solver B's sum.
+    %   off: mu = Psi'(u^n) - kappa*Lap(u^{n+1})              [Psi' fully explicit]
+    %   on : mu = Psi_c'(u^{n+1}) - Psi_e'(u^n) - kappa*Lap   [Bailo's splitting]
+    % with Psi_c = Psi + a u^2/2, Psi_e = a u^2/2, a = 3*Zeta1^2/4. Psi'(u^{n+1})
+    % is LINEARISED about u^n so the system stays a single sparse solve:
+    %   mu = Psi'(u^n) + (Psi''(u^n) + a)(u^{n+1} - u^n) - kappa*Lap(u^{n+1}).
+    parameters.ConvexSplitting (1,1) logical = false;
     % DIAGNOSTIC ONLY: zero the reaction source in the FREE-RUNNING parallel
     % Solver A state (never in the production solve). Bailo's bound-preservation
     % proof assumes a pure conservation law; a source can add mass that no flux
@@ -197,10 +215,27 @@ dpsi_fun = model.CohesionSubModel.PotentialGradient;
 kappaCH = model.CohesionSubModel.Kappa;
 zeta1CH = model.CohesionSubModel.Zeta1;
 bailoIters = 0; bailoSteps = 0; bailoMaxIt = 0; bailoFail = 0; bailoZero = 0;
+% Psi''(u) = 3u(u - Zeta1); needed by ConvexSplitting in the shin/matched branch.
+dpsi2CH = @(uu) 3*uu.*(uu - zeta1CH);
 % Bailo's discrete operators depend only on n0, dz and S -- all fixed for the run
 % -- so they are built ONCE here. Rebuilding them inside the per-step solve cost
 % 310 us of a 462 us per-step floor at n0 = 501, i.e. 67% of the floor spent
 % reconstructing constant matrices. Measured, not guessed.
+matchedOps = struct.empty;
+if parameters.CohesionScheme == "matched"
+    n0m = filter.GridZero; dzm = filter.GridSize;
+    epsCm = computePorosity(filter, filter.GridPoints.Centers(1:n0m));
+    epsFm = computePorosity(filter, filter.GridPoints.Boundaries(2:n0m));  % faces 1..n0m-1
+    em1 = ones(n0m-1,1);
+    % face gradient (mu_{i+1}-mu_i)/dz
+    Gm = spdiags([-em1, em1], [0 1], n0m-1, n0m)/dzm;
+    % faces -> cells, porosity weighted: (eps_{i+1/2}F_i - eps_{i-1/2}F_{i-1})/(dz*eps_i)
+    ii = (1:n0m-1)';
+    DivE = sparse([ii; ii+1], [ii; ii], ...
+                  [epsFm(:)./(dzm*epsCm(1:n0m-1)); -epsFm(:)./(dzm*epsCm(2:n0m))], ...
+                  n0m, n0m-1);
+    matchedOps = struct("G", Gm, "DivE", DivE, "n0", n0m);
+end
 bailoOps = struct.empty;
 if parameters.CohesionScheme == "bailo"
     n0b = filter.GridZero; dzb = filter.GridSize;
@@ -298,6 +333,24 @@ if parameters.RecordCflBudget
     % one accumulates, which is what the component-elimination design actually
     % depends on -- there Solver A's phi_b becomes authoritative for the whole run.
     phibParFrames = nan(filter.GridZero, numFrames);
+    % PROTOTYPE (diagnostic, changes nothing): Solver A's u-row rewritten as the
+    % EXACT flux Solver B uses -- same upwind form, same v_b, same porosity
+    % weights, and explicit in the transported quantity, because Solver B is too
+    % (it advects globalBiofilm at time n with velBiofilm at n+1).
+    %
+    % If the sum argument holds discretely, this must reproduce Solver B's
+    % component sum to ROUNDOFF: every biofilm-phase component shares v_b, so they
+    % share the upwind direction, and phi_b is a linear combination of them.
+    uMatchedPrev = [];  matchDiag = struct("maxAbs", 0, "maxRel", 0, "n", 0);
+    % ELIMINATION CHECK. Reconstruct the LARGEST biofilm component -- enclosed
+    % water -- from Solver A's phi_b and the other components, and compare against
+    % the one Solver B actually transported:
+    %   phi_b = phiW + sum(X_mat)/rho_P + sum(X_enc)/rho_P + sum(S_enc)/rho_L
+    %   phiW_recon = phi_b(Solver A) - [the rest, from Solver B]
+    % Enclosed water because the reconstructed component absorbs all the error and
+    % its RELATIVE error is smallest when it is the largest term; never PAT, which
+    % is the smallest and the manuscript's headline output.
+    reconDiag = struct("maxAbs", 0, "maxRelDomain", 0, "n", 0, "wScale", 0);
     uPar = [];
     parDiag = struct("tSeed", NaN, "tFirstNeg", NaN, "tFirstAbove1", NaN, "tFirstNaN", NaN, ...
                      "minSeen", Inf, "maxSeen", -Inf, "dead", false);
@@ -576,7 +629,30 @@ while t < timeStart + simulationTime
     rhsCH = [u + dt*rhsBiofilmVolume(1:n0); dpsi_fun(u)];
 
     % solving linear system
-    if useBailo
+    if parameters.CohesionScheme == "matched"
+        % ---- matched scheme: Solver B's flux, applied to phi_b ---------------
+        % Upwind direction is lagged one step (velBiofilm still holds the previous
+        % step's value here) -- the same order of approximation as the mobility
+        % lag the scheme already uses.
+        vPrev = velBiofilm(1:n0-1);
+        Uup = u(1:n0-1).*(vPrev >= 0) + u(2:n0).*(vPrev < 0);   % upwind u^n at faces
+        aFac = zeta_0*(1 - uB);                                  % lagged, as before
+        wAdv = volumeAvgVelocity(2:n0);                          % advective face velocity
+        Gm = matchedOps.G;  DivE = matchedOps.DivE;
+        Bop = DivE * spdiags(Uup.*aFac, 0, n0-1, n0-1) * Gm;     % n0 x n0, tridiagonal
+        % Concatenate rather than index-assign into a sparse matrix: indexed
+        % assignment into a sparse array reallocates and is slow in a hot loop.
+        Zn = sparse(n0, n0);
+        % Block (1,2) is MINUS dt*Bop. From u^{n+1} = u^n - dt*Div_e(F) + dt*R
+        % with F = U*(w - a*(G mu)):  Div_e(F) = DivE*(U.*w) - Bop*mu, so
+        % u^{n+1} = u^n - dt*DivE*(U.*w) + dt*Bop*mu + dt*R, i.e. -dt*Bop on the
+        % left. The first version had +dt*Bop, driving the cohesive flux the wrong
+        % way: one-step error 1.64e-03 against shin's 1.08e-04, and no drift gain.
+        lhsM = CH0 - [Zn, dt*Bop; Zn, Zn];                       % block (1,2)
+        rhsM = [u - dt*(DivE*(Uup.*wAdv)) + dt*rhsBiofilmVolume(1:n0); dpsi_fun(u)];
+        xM = lhsM \ rhsM;
+        uCH = xM(1:n0);  muCH = xM(n0+1:end);
+    elseif useBailo
         % ---- Bailo (2023) in native (0,1) form, semismooth Newton -----------
         % Solves the SAME equation as the "shin" branch -- convection S, source
         % rhsBiofilmVolume, potential Psi, interfacial kappa -- but with the
@@ -597,6 +673,14 @@ while t < timeStart + simulationTime
         bailoFail = bailoFail + (bailoIt >= 50);
         bailoZero = bailoZero + (bailoIt == 0);
     else
+        if parameters.ConvexSplitting
+            % Move (Psi'' + a) into block (2,1) and its explicit counterpart to
+            % the rhs. block(2,1) is currently -DD, so it becomes
+            % -(diag(Psi''+a) + DD) and row 2 of the rhs gains -(Psi''+a).*u^n.
+            cS = dpsi2CH(u) + 3*zeta1CH^2/4;
+            lhsCH(n0+1:2*n0, 1:n0) = lhsCH(n0+1:2*n0, 1:n0) - spdiags(cS, 0, n0, n0);
+            rhsCH(n0+1:2*n0) = rhsCH(n0+1:2*n0) - cS.*u;
+        end
         xCH = lhsCH \ rhsCH;
         uCH = xCH(1:n0);
         muCH = xCH(n0+1:end);
@@ -667,7 +751,46 @@ while t < timeStart + simulationTime
     end
 
     % computing vb
-    velBiofilm(1:n0-1) = volumeAvgVelocity(2:n0) - zeta_0*(1 - uB).*diff(muCH)/dz;
+    % v_b handed to Solver B. Solver B applies u_upwind*v_b, so for Solver A's
+    % OWN flux to be what Solver B actually performs, the mobility factor here
+    % must match the one Solver A solved with:
+    %   shin/matched : centred (1 - uB)          -> u_up*(1-uB)
+    %   bailo        : (1 - u_downwind)^+        -> u_up*(1-u_down), i.e. exactly
+    %                  Bailo's zeta_0 (x)^+ (1-y)^+ once multiplied by u_upwind.
+    % Before 2026-08-24 every scheme exported the centred form, so Bailo solved
+    % its u-row with one mobility and exported a v_b built from another. Every
+    % previously reported Bailo number carries that inconsistency.
+    if useBailo
+        gradMu = -diff(muCH)/dz;                       % cohesive velocity at faces
+        uDown  = u(2:n0).*(gradMu >= 0) + u(1:n0-1).*(gradMu < 0);
+        velBiofilm(1:n0-1) = volumeAvgVelocity(2:n0) + zeta_0*max(1 - uDown, 0).*gradMu;
+    else
+        velBiofilm(1:n0-1) = volumeAvgVelocity(2:n0) - zeta_0*(1 - uB).*diff(muCH)/dz;
+    end
+
+    if parameters.RecordCflBudget
+        % --- matched-flux prototype: Solver B's discretisation applied to phi_b --
+        % Compare the PREVIOUS step's prediction against phiBiofilm now, which is
+        % Solver B's component sum at this time level.
+        if ~isempty(uMatchedPrev)
+            dM = abs(uMatchedPrev - phiBiofilm(1:n0));
+            matchDiag.maxAbs = max(matchDiag.maxAbs, max(dM));
+            matchDiag.maxRel = max(matchDiag.maxRel, ...
+                max(dM)/max(max(abs(phiBiofilm(1:n0))), realmin));
+            matchDiag.n = matchDiag.n + 1;
+        end
+        % Face fluxes on 1..n0. velBiofilm(n0:end) is zero (biofilm is immobile in
+        % the bed), so there is no outflow at z = 0 -- matching Solver B exactly.
+        vbF = velBiofilm(1:n0);
+        uFl = u;                                   % phi_b at time n, cells 1..n0
+        Fm  = zeros(n0, 1);
+        Fm(1:n0-1) = uFl(1:n0-1).*max(0, vbF(1:n0-1)) + uFl(2:n0).*min(0, vbF(1:n0-1));
+        Fl  = [0; Fm(1:n0-1)];                     % left face of each cell
+        uMatchedPrev = uFl ...
+            + (dt/dz)*(porosityBoundaries(1:n0).*Fl ...
+                     - porosityBoundaries(2:n0+1).*Fm)./porosityCenters(1:n0) ...
+            + dt*rhsBiofilmVolume(1:n0);
+    end
     %================================================================%
     %====================== V. SOLVER B: compute concentrations =================================%
     phiBiofilmBoundaries = .5*(phiBiofilm(2:end) + phiBiofilm(1:end-1));
@@ -864,6 +987,18 @@ while t < timeStart + simulationTime
     end
     phiW = phiW + (dt/dz)*(fluxWaterIn - fluxWaterOut)./porosityCenters + dt*rhsEnclosedWaterB;
 
+    if parameters.RecordCflBudget
+        % Both sides are now at n+1: uCH from Solver A this step, the components
+        % just advanced by Solver B.
+        othersRecon = sum(globalBiofilm(1:n0, 1:kP), 2)/densityP ...
+                    + sum(globalBiofilm(1:n0, kP+1:2*kP), 2)/densityP ...
+                    + sum(globalBiofilm(1:n0, 2*kP+1:2*kP+kL), 2)/densityL;
+        eRec = abs((uCH - othersRecon) - phiW(1:n0));
+        reconDiag.maxAbs = max(reconDiag.maxAbs, max(eRec));
+        reconDiag.wScale = max(reconDiag.wScale, max(abs(phiW(1:n0))));
+        reconDiag.n = reconDiag.n + 1;
+    end
+
     globalFlowing = globalFlowing + (dt/dz)*(fluxFlowingIn - fluxFlowingOut)./porosityCenters + dt*rhsFlowing;
     if parameters.ImplicitDispersion
         % phi_f at n+1, from the blocks just advanced (mirrors :337-340).
@@ -992,6 +1127,9 @@ if parameters.RecordCflBudget
     results.SimulationData.PhibCH = phibCHFrames;
     results.SimulationData.PhibPar = phibParFrames;
     results.SimulationData.PhibParDiag = parDiag;
+    results.SimulationData.MatchDiag = matchDiag;
+    reconDiag.maxRelDomain = reconDiag.maxAbs/max(reconDiag.wScale, realmin);
+    results.SimulationData.ReconDiag = reconDiag;
 end
 
 if parameters.RecordLimitation

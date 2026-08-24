@@ -58,13 +58,18 @@ t  = R{1}.Frames.Time(:);
 phi = cellfun(@(r) biofilmFrac(r), R, UniformOutput=false);
 mass = cellfun(@(r) totalBio(r, dz), R, UniformOutput=false);
 
-set(groot, "defaultAxesFontSize", 11, "defaultLineLineWidth", 1.5);
+% Figures are created invisible: on a headless cluster node figure() takes the
+% GUI path and MATLAB dies with a fatal error in PFGuiApplication/GuiThread --
+% job 3531774 completed all three 3 d simulations at N=500 and then crashed in
+% plotting, losing the tables. Locally there is a display so it never showed up.
+set(groot, "defaultAxesFontSize", 11, "defaultLineLineWidth", 1.5, ...
+    "defaultFigureVisible", "off");
 % A and B agree to ~4e-03, so drawn identically B hides A entirely and the figure
 % looks like a single curve. Distinct widths/styles so the overlap is visibly an
 % overlap rather than a missing series.
 lw = [3.0 1.6 1.6]; ls = ["-" "--" ":"];
 cols = lines(3);
-fig = figure(Position=[80 80 1150 760]);
+fig = figure(Position=[80 80 1150 760], Visible="off");
 tl = tiledlayout(fig, 2, 3, TileSpacing="compact", Padding="compact");
 
 nexttile; hold on                                     % phi_b final profile
@@ -136,7 +141,7 @@ fprintf("\nwrote %s\n", out);
 parts = [R{1}.Model.Particles.Name];  liqs = [R{1}.Model.Liquids.Name];
 panels = [ compose("%s|Matrix", parts), compose("%s|Flowing", liqs), "Water|Enclosed" ];
 np = numel(panels);
-fig2 = figure(Position=[60 60 1250 780]);
+fig2 = figure(Position=[60 60 1250 780], Visible="off");
 tl2 = tiledlayout(fig2, 3, ceil((np+1)/3), TileSpacing="compact", Padding="compact");
 devC = nan(1, np);
 for i = 1:np

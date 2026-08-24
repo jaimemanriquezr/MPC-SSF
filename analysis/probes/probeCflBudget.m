@@ -33,6 +33,7 @@ arguments
     opts.MaxDt (1,1) double = 3e-6
     opts.Respiration (1,1) double = 0.55
     opts.CohesionScheme (1,1) string = "shin"
+    opts.ConvexSplitting (1,1) logical = false
     opts.PositiveMobility (1,1) logical = false
     opts.Save (1,1) logical = true
 end
@@ -79,7 +80,7 @@ r = simulate(State(f, m), InflowConcentrations=inflow, ...
     SimulationTime=opts.MatureDays, TimeStep="adaptive", ...
     AdaptiveInitialDt=1e-8, AdaptiveMaxDt=opts.MaxDt, ...
     FrameNumber=24, ImplicitOsmosis=true, RecordCflBudget=true, ...
-    PositiveMobility=opts.PositiveMobility, CohesionScheme=opts.CohesionScheme, Quiet=true);
+    PositiveMobility=opts.PositiveMobility, CohesionScheme=opts.CohesionScheme, ConvexSplitting=opts.ConvexSplitting, Quiet=true);
 wall = toc(t0);
 
 b = r.SimulationData.CflBudget;
