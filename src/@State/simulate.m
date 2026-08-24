@@ -91,6 +91,18 @@ arguments
     % scheme; with it on and bounds held, the source is the cause. Isolates
     % obstacle A of .claude/plans/2026-08-23-bailo-scheme.md.
     parameters.ParallelSourceOff (1,1) logical = false;
+    % How the free-running diagnostic treats the volumetric source.
+    %   "shared" -- use rhsBiofilmVolume as computed from the real state.
+    %   "detach" -- additionally rescale the detachment share by uPar/uReal.
+    %   "full"   -- rescale the whole source by uPar/uReal.
+    % NOT a free choice: rx = phi.*mu.*I.*monod.*product with product = local and
+    % local = global/phi, so the phi CANCELS and rx is proportional to the GLOBAL
+    % concentration, not to phi_b. detM = k(v_f).*globalMatrix likewise. The
+    % globals belong to Solver B and do not change with uPar, so "shared" is the
+    % defensible default and "detach"/"full" are diagnostics for bounding how much
+    % the source treatment moves the answer. Note "detach" ADDS damping wherever
+    % uPar > uReal, which can bound the state for the wrong reason.
+    parameters.ParallelSourceMode (1,1) string = "shared";
 end
 if ~isempty(options)
     for field = string(fieldnames(options)).'
@@ -614,7 +626,7 @@ while t < timeStart + simulationTime
         % The free-running state must use the SAME scheme, or the diagnostic
         % measures the wrong solver.
         if useBailo && ~parDiag.dead
-            srcPar = selfConsistentSource(rhsBiofilmVolume(1:n0), detVolume, u, uPar);
+            srcPar = selfConsistentSource(rhsBiofilmVolume(1:n0), detVolume, u, uPar, parameters.ParallelSourceMode);
             if parameters.ParallelSourceOff, srcPar = zeros(n0,1); end
             uPar = solveBailoCH(uPar, dt, zeta_0, kappaCH, 3*zeta1CH^2/4, ...
                 dpsi_fun, S(1:n0,1:n0), srcPar, n0, bailoOps);
@@ -627,7 +639,7 @@ while t < timeStart + simulationTime
             wState2 = warning("off", "MATLAB:singularMatrix");
             cleanupW = onCleanup(@() warning([wState wState2]));
             if ~useBailo
-                srcPar = selfConsistentSource(rhsBiofilmVolume(1:n0), detVolume, u, uPar);
+                srcPar = selfConsistentSource(rhsBiofilmVolume(1:n0), detVolume, u, uPar, parameters.ParallelSourceMode);
                 if parameters.ParallelSourceOff, srcPar = zeros(n0,1); end
                 xPar = lhsPar \ [uPar + dt*srcPar; dpsi_fun(uPar)];
                 uPar = xPar(1:n0);
@@ -918,7 +930,11 @@ while t < timeStart + simulationTime
 
         if parameters.RecordCflBudget
             phibCHFrames(:, counter) = uCHrec;
-            phibParFrames(:, counter) = uPar;
+            % uPar is empty until the free state is seeded (max(u) > 1e-3). Frames
+            % written before that leave NaN, which the consumers already skip.
+            % Only shows with fine frame sampling: at FrameNumber=12 the first
+            % frame lands at 0.25 d, after the 0.123 d seed, so this was invisible.
+            if ~isempty(uPar), phibParFrames(:, counter) = uPar; end
         end
 
         if parameters.RecordLimitation
@@ -1153,7 +1169,7 @@ u1 = w;
 
 end
 
-function src = selfConsistentSource(rhsReal, detReal, uReal, uPar)
+function src = selfConsistentSource(rhsReal, detReal, uReal, uPar, mode)
 % Rescale the phi_b-proportional sink to the free-running state.
 %
 % rhsBiofilmVolume is computed from the REAL state. Growth depends on substrate,
@@ -1167,5 +1183,14 @@ function src = selfConsistentSource(rhsReal, detReal, uReal, uPar)
 % on uReal bounds k where there is no biofilm to detach (detReal is ~0 there too,
 % so the product stays ~0).
 k = detReal ./ max(uReal, 1e-6);
-src = (rhsReal + detReal) - k.*uPar;      % remove the shared sink, add the scaled one
+switch mode
+    case "shared"
+        src = rhsReal;                          % globals are Solver B's; leave them
+    case "detach"
+        src = (rhsReal + detReal) - k.*uPar;    % rescale only the detachment share
+    case "full"
+        src = rhsReal .* (uPar ./ max(uReal, 1e-6));   % rescale everything
+    otherwise
+        error("simulate:parallelSourceMode", "unknown ParallelSourceMode '%s'", mode);
+end
 end
