@@ -7,7 +7,14 @@ arguments
     parameters.TimeStep (1,1) = 1E-5;
     parameters.FrameNumber (1,1) {mustBeNumeric} = 200;
     parameters.CloggingFraction (1,1) {mustBeNumeric} = .99;
-    parameters.IsUpwinded (1,1) = false;
+    % Upwinded convection in the Cahn-Hilliard system. Changed from false to true
+    % on 2026-08-24. The centred stencil [-1;1;-1;1]/2 has no maximum principle,
+    % and it shows: with a self-consistent detachment sink the free-running
+    % Solver A state reaches -2.4e+05 .. 2.6e+05 under centred convection and
+    % stays at -8.0e-04 .. 0.145 -- bounded and physical for a full 3 d -- under
+    % upwinding. The default was never a deliberate modelling choice, and it feeds
+    % mu and hence v_b, so it affects every result.
+    parameters.IsUpwinded (1,1) = true;
     parameters.Quiet = false;
 
     % Adaptive (CFL) time-stepping: set TimeStep="adaptive" to enable. Ported
@@ -204,9 +211,21 @@ if parameters.CohesionScheme == "bailo"
             "analytic Psi'' disagrees with the model's PotentialGradient " + ...
             "(max rel %.3e). Zeta1 = %g. Check the preset's handle.", relerr, zeta1CH);
     end
+    % POROSITY WEIGHTS. Shin's diffusionMobility carries
+    %   -(stencil .* porosityBoundaries(2:n0)) ./ porosityCenters(rows)
+    % i.e. the conservative form (1/eps_i) d_z(eps * lambda * d_z mu). Bailo's
+    % operators were built with NO porosity, which is invisible in the supernatant
+    % (eps ~ 1) but wrong by up to 2.5x across the roughness layer at z = 0, where
+    % eps falls 1 -> 0.4 -- and that is exactly where material accumulates. It is
+    % why the free-running Bailo state reached 1e3 while upwinded Shin stayed at
+    % 0.145 under identical conditions.
+    epsC = computePorosity(filter, filter.GridPoints.Centers(1:n0b));
+    epsF = computePorosity(filter, filter.GridPoints.Boundaries(2:n0b));
     bailoOps = struct("Lap", Lb/dzb^2, ...
         "Dface", spdiags([-emb, emb], [0 1], n0b-1, n0b)/dzb, ...
-        "Div",   spdiags([-eb, eb], [-1 0], n0b, n0b-1)/dzb, ...
+        "Div",   spdiags(1./epsC(:), 0, n0b, n0b) * ...
+                 spdiags([-eb, eb], [-1 0], n0b, n0b-1)/dzb, ...
+        "epsFace", epsF(:), ...
         "Iden",  speye(n0b), "rows", rrb, ...
         "Ji", [rrb; rrb], "Jj", [rrb; rrb+1], ...   % fixed Jacobian sparsity
         "dpsi2", dpsi2);
@@ -528,6 +547,12 @@ while t < timeStart + simulationTime
                         + sum(reactionsEnclosedLiquids,2)/densityL ...
                         + rhsEnclosedWaterA;
     rhsBiofilmVolume = rhsBiofilmVolume(1:n0);
+    % The detachment share of the volumetric source, kept separately because it
+    % is phi_b-PROPORTIONAL (detM = k_det(v_f).*globalMatrix). The free-running
+    % diagnostic needs to rescale it to its own state: sharing the real state's
+    % value freezes the only sink that bounds the solution, which is why uPar
+    % accumulated to 1e4 without opposition.
+    detVolume = sum(detM(1:n0, :), 2)/densityP;          % >= 0, a SINK
 
     u = phiBiofilm(1:n0);
     uB = .5*(u(2:end) + u(1:end-1));
@@ -589,7 +614,7 @@ while t < timeStart + simulationTime
         % The free-running state must use the SAME scheme, or the diagnostic
         % measures the wrong solver.
         if useBailo && ~parDiag.dead
-            srcPar = rhsBiofilmVolume(1:n0);
+            srcPar = selfConsistentSource(rhsBiofilmVolume(1:n0), detVolume, u, uPar);
             if parameters.ParallelSourceOff, srcPar = zeros(n0,1); end
             uPar = solveBailoCH(uPar, dt, zeta_0, kappaCH, 3*zeta1CH^2/4, ...
                 dpsi_fun, S(1:n0,1:n0), srcPar, n0, bailoOps);
@@ -602,7 +627,7 @@ while t < timeStart + simulationTime
             wState2 = warning("off", "MATLAB:singularMatrix");
             cleanupW = onCleanup(@() warning([wState wState2]));
             if ~useBailo
-                srcPar = rhsBiofilmVolume(1:n0);
+                srcPar = selfConsistentSource(rhsBiofilmVolume(1:n0), detVolume, u, uPar);
                 if parameters.ParallelSourceOff, srcPar = zeros(n0,1); end
                 xPar = lhsPar \ [uPar + dt*srcPar; dpsi_fun(uPar)];
                 uPar = xPar(1:n0);
@@ -1081,6 +1106,7 @@ TOL = 1e-10; MAXIT = 50;
 % Operators are prebuilt once per run (see bailoOps at the top): rebuilding them
 % here cost 310 us of a 462 us per-step floor at n0 = 501.
 Lap = ops.Lap;  Dface = ops.Dface;  Div = ops.Div;  Iden = ops.Iden;
+epsFace = ops.epsFace;
 Ji = ops.Ji;  Jj = ops.Jj;  dpsi2 = ops.dpsi2;
 
 w = u0;  iters = MAXIT;
@@ -1099,8 +1125,9 @@ for k = 1:MAXIT
     % term, so combine the coefficients first and build ONE sparse matrix on the
     % precomputed index vectors, instead of two sparse() calls plus two diagonal
     % multiplies. Row-scaling of dV uses implicit expansion for the same reason.
-    dF  = sparse(Ji, Jj, [vp.*dMp_i + vm.*dMm_i; vp.*dMp_j + vm.*dMm_j], n0-1, n0) ...
-        + A.*dV;
+    dF  = spdiags(epsFace, 0, n0-1, n0-1) * ...
+          sparse(Ji, Jj, [vp.*dMp_i + vm.*dMm_i; vp.*dMp_j + vm.*dMm_j], n0-1, n0) ...
+        + A.*dV;      % A already carries epsFace
     J = Iden/dt + Div*dF - Sblk;
     d = -(J \ R);
     lam = 1; r0 = norm(R, inf);                            % backtracking
@@ -1119,9 +1146,26 @@ u1 = w;
         vp = max(vf, 0);  vm = min(vf, 0);
         Mp = zeta0*max(v(1:end-1), 0).*max(1 - v(2:end),   0);
         Mm = zeta0*max(v(2:end),   0).*max(1 - v(1:end-1), 0);
-        F  = Mp.*vp + Mm.*vm;
+        F  = epsFace.*(Mp.*vp + Mm.*vm);      % eps-weighted, as Shin's operator is
         A  = Mp.*(vf >= 0) + Mm.*(vf < 0);
         R  = (v - u0)/dt + Div*F - Sblk*v - src;
     end
 
+end
+
+function src = selfConsistentSource(rhsReal, detReal, uReal, uPar)
+% Rescale the phi_b-proportional sink to the free-running state.
+%
+% rhsBiofilmVolume is computed from the REAL state. Growth depends on substrate,
+% not on phi_b, so sharing it is right. Detachment does not: detM scales with
+% globalMatrix and hence with phi_b, so sharing it freezes the sink at the real
+% state's value while uPar grows. That is why the free-running state accumulated
+% to ~1e4 -- the mechanism that bounds the physical solution was absent by
+% construction, so the blow-up said nothing about the scheme.
+%
+% Recover an effective rate k = detReal/uReal and reapply it at uPar. The floor
+% on uReal bounds k where there is no biofilm to detach (detReal is ~0 there too,
+% so the product stays ~0).
+k = detReal ./ max(uReal, 1e-6);
+src = (rhsReal + detReal) - k.*uPar;      % remove the shared sink, add the scaled one
 end
