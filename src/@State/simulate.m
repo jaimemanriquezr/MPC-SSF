@@ -77,6 +77,13 @@ arguments
     % convection and a reaction source, so the proof does not strictly transfer --
     % run with RecordCflBudget to measure whether u actually stays in [0,1].
     parameters.CohesionScheme (1,1) string = "shin";
+    % DIAGNOSTIC ONLY: zero the reaction source in the FREE-RUNNING parallel
+    % Solver A state (never in the production solve). Bailo's bound-preservation
+    % proof assumes a pure conservation law; a source can add mass that no flux
+    % limiter opposes. With the source off, a bound violation must come from the
+    % scheme; with it on and bounds held, the source is the cause. Isolates
+    % obstacle A of .claude/plans/2026-08-23-bailo-scheme.md.
+    parameters.ParallelSourceOff (1,1) logical = false;
 end
 if ~isempty(options)
     for field = string(fieldnames(options)).'
@@ -261,7 +268,7 @@ if parameters.RecordCflBudget
     % depends on -- there Solver A's phi_b becomes authoritative for the whole run.
     phibParFrames = nan(filter.GridZero, numFrames);
     uPar = [];
-    parDiag = struct("tFirstNeg", NaN, "tFirstAbove1", NaN, "tFirstNaN", NaN, ...
+    parDiag = struct("tSeed", NaN, "tFirstNeg", NaN, "tFirstAbove1", NaN, "tFirstNaN", NaN, ...
                      "minSeen", Inf, "maxSeen", -Inf, "dead", false);
 end
 
@@ -569,20 +576,35 @@ while t < timeStart + simulationTime
         % cannot be recomputed from uPar -- holding it common isolates the CH
         % transport discretisation as the sole origin of any drift.
         % Diagnostic only: nothing here feeds muCH, v_b, or Solver B.
-        if isempty(uPar), uPar = u; end
+        % Seed the free-running state only once there is biofilm to evolve.
+        % Seeding at the first step takes u ~ 0 on a clean start, and with no
+        % reaction source u == 0 is an EXACT fixed point of the Bailo scheme --
+        % M(x,y) = zeta_0 (x)^+ (1-y)^+ vanishes at x = 0 and Sblk*0 = 0 -- so the
+        % source-off comparison returned min = max = 0 and measured nothing.
+        if isempty(uPar) && max(u) > 1e-3, uPar = u; parDiag.tSeed = t; end
+        if ~isempty(uPar)
         uBpar = .5*(uPar(2:end) + uPar(1:end-1));
         lambdaPar = zeta_0*mobility(uBpar);
         if parameters.PositiveMobility, lambdaPar = max(lambdaPar, 0); end
         % The free-running state must use the SAME scheme, or the diagnostic
         % measures the wrong solver.
         if useBailo && ~parDiag.dead
+            srcPar = rhsBiofilmVolume(1:n0);
+            if parameters.ParallelSourceOff, srcPar = zeros(n0,1); end
             uPar = solveBailoCH(uPar, dt, zeta_0, kappaCH, 3*zeta1CH^2/4, ...
-                dpsi_fun, S(1:n0,1:n0), rhsBiofilmVolume(1:n0), n0, bailoOps);
+                dpsi_fun, S(1:n0,1:n0), srcPar, n0, bailoOps);
         end
         lhsPar = CH0 - dt*(S + sparse(D.Rows, D.Columns, D.Values.*(lambdaPar).', 2*n0, 2*n0));
         if ~parDiag.dead
+            % The diverging diagnostic state legitimately produces singular
+            % systems; that is the finding, not an error worth 10^7 warnings.
+            wState = warning("off", "MATLAB:nearlySingularMatrix");
+            wState2 = warning("off", "MATLAB:singularMatrix");
+            cleanupW = onCleanup(@() warning([wState wState2]));
             if ~useBailo
-                xPar = lhsPar \ [uPar + dt*rhsBiofilmVolume(1:n0); dpsi_fun(uPar)];
+                srcPar = rhsBiofilmVolume(1:n0);
+                if parameters.ParallelSourceOff, srcPar = zeros(n0,1); end
+                xPar = lhsPar \ [uPar + dt*srcPar; dpsi_fun(uPar)];
                 uPar = xPar(1:n0);
             end
             % Record WHERE it first leaves the physical range, not just how far
@@ -593,11 +615,18 @@ while t < timeStart + simulationTime
             parDiag.maxSeen = max(parDiag.maxSeen, max(uPar));
             if isnan(parDiag.tFirstNeg)    && any(uPar < 0),  parDiag.tFirstNeg    = t; end
             if isnan(parDiag.tFirstAbove1) && any(uPar > 1),  parDiag.tFirstAbove1 = t; end
-            if any(~isfinite(uPar))
-                parDiag.tFirstNaN = t;
-                parDiag.dead = true;   % stop wasting a solve per step on NaNs
+            % Stop once the state is unusable, not merely non-finite. Past
+            % |u| ~ 1e3 the free-running state is garbage, its Jacobian is
+            % singular to working precision, and every further Newton iteration
+            % emits a warning: one run wrote a 1.5 GB, 47-million-line log and
+            % became I/O-bound rather than compute-bound. Record the excursion,
+            % then stop solving.
+            if any(~isfinite(uPar)) || max(abs(uPar)) > 1e3
+                if isnan(parDiag.tFirstNaN), parDiag.tFirstNaN = t; end
+                parDiag.dead = true;
             end
         end
+        end   % ~isempty(uPar): the free state is not seeded until biofilm exists
     end
 
     % computing vb
