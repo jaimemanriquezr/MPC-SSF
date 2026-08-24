@@ -509,3 +509,79 @@ upwinding, in-house.
 | `src/@State/simulate.m` | Phase 0 instrumentation only; no scheme change in this plan |
 | `.claude/decisions/` | Phase 4 outcome |
 | `PLANS.md` | unpark the Bailo entry, point it here |
+
+## Bounding the CH sub-problem at z = 0 — options, and a prior step that may moot them
+
+### The finding that reframes this
+
+- `velBiofilm(1:n0-1)` is the ONLY write to v_b (`simulate.m:633`); faces n0..nC-1 keep their
+  initialised zero. **Biofilm is immobile in the bed: v_b == 0 for z >= 0.**
+- `rhsBiofilmVolume` (`:526-530`) contains `-detM`, and
+  `detM = DetachmentFunction(v_f) .* globalMatrix` -- a **phi_b-PROPORTIONAL sink**.
+
+So the physically correct convective outflow at z = 0 is **zero**, because the velocity there
+is zero. The operator is not missing a boundary condition; it is consistent with the
+immobile-bed assumption. Accumulation at cell n0 is physical -- it IS schmutzdecke formation
+-- and what bounds it in reality is detachment, not a boundary flux.
+
+### Step 0 (do this first; it may dissolve the problem)
+
+The free-running diagnostic shares `rhsBiofilmVolume` computed from the REAL state. Detachment
+therefore stays frozen at the real state's small value while uPar grows to 1e4, so the sink
+that bounds the physical solution is absent by construction. **Unbounded accumulation is the
+expected outcome of that design, not evidence about the scheme.**
+
+Fix: recompute the phi_b-proportional part of the sink from uPar. Detachment is
+`k_det(v_f) * X_matrix`, and X_matrix scales with phi_b, so a defensible first cut is to scale
+the detachment contribution by `uPar/u`, leaving growth (which depends on substrate, not
+phi_b) shared. Cheap, and if bounds then hold there is no BC problem at all.
+
+**Only if it still exceeds 1 do the options below matter.**
+
+### Option A -- flux (outflow) BC at z = 0
+
+Matching an outflow velocity is not the difficulty; there is nothing to match, since v_b = 0
+on the bed side. The spatial discontinuity is real (porosity runs 1 -> epsilon over
+SandRoughness = 5 mm, so q/epsilon jumps by 2.5x) but does not enter, because the flux is
+zero regardless of the velocity's discontinuity.
+
+What IS wrong and fixable without touching physics: the convection operator is
+**non-conservative**, `(S u)_i = (q/eps_i)(u_{i-1} - u_i)/dz`, dividing by a depth-varying
+porosity. Interior rows happen to sum to zero, but with variable epsilon the contributions do
+not telescope over a contiguous over-full group, so Bailo's contradiction argument fails even
+where the fluxes are individually fine. Rewriting convection in porosity-weighted conservative
+flux form -- same physics, same u*q, same zero flux at z = 0 -- restores telescoping.
+
+- Pro: no physics change, no new parameter, and it is the actual defect in the argument.
+- Con: does not by itself bound u. Conservative advection into a cell with zero outflow still
+  accumulates; it just accumulates in a way the proof can account for.
+- Verdict: necessary if a proof is wanted, not sufficient.
+
+### Option B -- Dirichlet at z = 0
+
+Historically the original: Diehl2025 used Dirichlet at z = 0 and manuscript Appendix A.1
+**deliberately replaced it** with homogeneous Neumann because the Dirichlet form "would need
+very small time steps".
+
+- Pro: caps u at the boundary by construction, so accumulation at n0 cannot run away. Directly
+  targets the observed failure.
+- Con 1: **the value has to come from somewhere.** The only sensible source is Solver B's
+  phi_b at z = 0 -- which reintroduces exactly the dependence the component-elimination design
+  exists to remove. A Dirichlet CH sub-problem is not authoritative; it is slaved.
+- Con 2: it overrides the dynamics at the one cell where the schmutzdecke actually forms, i.e.
+  it imposes the answer at the place of interest.
+- Con 3: the timestep penalty that motivated abandoning it is unmeasured here and would have
+  to be re-measured, now that kappa is live (it was inert when that decision was taken, so the
+  original justification rests on evidence that no longer means what it did).
+- Verdict: viable only if the elimination design is abandoned. If phi_b is to be slaved to
+  Solver B at the boundary anyway, most of the motivation for making Solver A authoritative
+  disappears.
+
+### Recommended order
+
+1. **Step 0** -- self-consistent detachment in the diagnostic. Cheap; may show there is
+   nothing to fix.
+2. If still unbounded: **Option A** (conservative convection), because it is a genuine defect
+   independent of this question and changes no physics.
+3. **Option B** only as a last resort, and note it costs the elimination design. Re-measure
+   the dt penalty before accepting Appendix A.1's reasoning, which predates the kappa fix.
