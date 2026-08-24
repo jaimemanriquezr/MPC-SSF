@@ -736,3 +736,87 @@ influent pathology specifically, invisible to both a 10-day run and a daily-mean
 
 Also: `o2_bed_min` in `probeSeason90.m` is misnamed -- it minimises over **all** z including
 the supernatant, so two of the six "bed" minima are supernatant cells.
+
+## 2026-08-23/24 — kappa restored, implicit dispersion, and a working elimination
+
+Long session. Three durable results, one open physical worry, and a running theme
+worth carrying forward.
+
+### Results that stand
+
+**1. The Cahn-Hilliard kappa term was inert and is now fixed** in all three trees.
+`getCahnHilliardMatrices` assembled every operator with `Rows <= n0`, leaving block
+(2,1) empty, so `mu = Psi'(u^n)` exactly and kappa never reached mu. Verified
+state-independently (block nnz 0, `max|muCH - psi'(u)| = 0` for random u), and
+corroborated by the log-OAT report ranking kappa 27/27 with EXACTLY zero
+sensitivity. Fix is `+ n0` on `diffusion.Rows`. MMS order 1.999; goldens re-exported;
+`Pkg.test` 285/285. **Every previously published figure, manuscript Fig. 7 included,
+was produced with no cohesion at all.**
+
+**2. Implicit dispersion** (`ImplicitDispersion`, level A -- no phi_f lag) gives
+**7.11x fewer steps / 5.06x wall at N=500**, measured three times independently,
+for 6.1e-05 accuracy cost. It only pays at fine mesh (1.08x at N=100). Binding moves
+from flowing-P/dispersion to enclosed-L, and at N=500 advection overtakes reactions
+(0.53 vs 0.46) -- a crossover predicted at N ~ 407 from independent N=200 data.
+
+**3. The component elimination WORKS**, via `CohesionScheme="matched"`: Solver A's
+u-row rewritten as the exact flux Solver B applies. One-step agreement 8.3e-17;
+reconstruction of enclosed water 3.67e-09 (2.46e-08 rel), 29,000x better than shin.
+The residual is a stale `dt` in `rhsEnclosedWaterA` (:604 vs :984), not a floor.
+
+Also: `IsUpwinded` default false -> true (centred convection has no maximum
+principle; production impact 7.66e-04), and `CohesionScheme="bailo"` implemented and
+validated against Bailo's own five gates in a standalone prototype.
+
+### The open worry, and it is the important one
+
+**E3 (kappa=1e-6, N=500, 20 d) shows biofilm migrating UP into the supernatant.**
+Bed biomass peaks at day 10 and then falls 40%; by day 20, 57% of the biofilm is
+ABOVE the sand, reaching 34 cm with phi_b = 0.14 at 30 cm. That is not a
+schmutzdecke.
+
+Suspected mechanism: `Psi(u) = u^4/4 - 0.5*zeta_1*u^3` has ONE minimum at
+u = 1.5*zeta_1 = 0.015 and no high-concentration well, so `mu = Psi'(u) - kappa*Lap`
+drives every cell above 0.015 downhill and the cohesive flux acts as POSITIVE
+diffusion (Psi'' = 3u(u - zeta_1) > 0). It disperses the mat rather than holding it.
+
+NOT yet attributable to the kappa fix: the Psi' half of that flux was always active
+even when kappa was inert, and kappa sharpens interfaces, so it should oppose the
+spread. Job **3534207** (kappa = 1e-6 vs 0, N=200, 20 d) settles it -- kappa = 0
+reproduces the pre-fix scheme exactly.
+
+Separately, **winter biomass 2.288 vs summer 1.545 at 20 d**: the kappa fix has NOT
+restored the published summer > winter ordering.
+
+### The theme: the instrumentation was less reliable than the code
+
+Repeatedly, findings I reported with confidence turned out to be artefacts of my own
+diagnostics, each corrected only by further measurement:
+
+- the free-running diagnostic froze the phi_b-proportional detachment sink, removing
+  the mechanism that bounds the solution -- I defended that design twice before
+  testing it;
+- the Bailo operators omitted the porosity weights Shin's carry, wrong by 2.5x at
+  the z = 0 roughness layer, which made Bailo look WORSE than the scheme it improves;
+- a sign error in the matched block (1,2);
+- Bailo exporting a v_b built from a different mobility than it solved with;
+- relative metrics with near-zero denominators reporting Inf, 4.3e12, 1.3e-04 as if
+  meaningful -- three separate times;
+- "drift saturates" read off an oscillation whose peaks were rising.
+
+Hypotheses refuted along the way: that the reaction source caused the bound
+violation; that convex splitting explained Bailo's excess drift; that the source
+treatment drove the accumulated drift. Each was a reasonable guess killed by a cheap
+test, which is the process working -- but the rate suggests testing instruments
+against something independent BEFORE trusting them. `bailoCH1D.m` (the standalone
+prototype, passing Bailo's five gates) is the one reference not downstream of this
+machinery.
+
+### Next
+
+1. **3534207** (kappa 0 vs 1e-6) -- does the kappa fix cause the upward migration?
+2. **3533845** (20 d drift) -- shin half valid; bailo half predates the v_b fix.
+3. Fix the stale `dt` in `rhsEnclosedWaterA`; expect the reconstruction at roundoff.
+4. Re-run cover sweep and legacy match: they predate BOTH the kappa fix and the
+   upwind default.
+5. The summer/winter inversion is a manuscript-level question, not a solver one.
