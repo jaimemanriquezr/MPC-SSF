@@ -1,4 +1,10 @@
-# PAT export non-closure: isolation battery (2026-09-01)
+# PAT export non-closure: isolation battery (2026-09-01) — RESOLVED
+
+**Outcome: first-order time-truncation error of the scheme, no defect, no code
+change.** Evidence chain and consequences in
+`.claude/decisions/2026-09-01-pat-export-closure-resolved.md`. The goal below
+was met by the second criterion (irreducible time-splitting error, quantified:
+residual halves with MaxDt, O₂ 8.33e-6 → 4.17e-6 → 2.09e-6 over a 4× range).
 
 ## Goal
 
@@ -19,6 +25,20 @@ irreducible time-splitting error with a quantified bound.
   exact arithmetic. Round-off over 2e5 steps is ~1e-9, two decades below the
   observed residual — but it stays in the battery as an empirical check on the
   reading.
+
+## Finding (2026-09-01, evening): the defect is NOT PAT-specific
+
+Extending the audit to liquids (which the original probe never budgeted) shows
+every flowing liquid — O₂, IC, NH₄, DOM — carries the *identical* residual ratio
+8.33e-6 of supply (PAT: 5.28e-6; HET/PHO export ~2e-6 of supply, so their clean
+residuals were silent, not clean evidence). Attachment, transfer, and every
+pathogen-specific term are exonerated; the effect is generic to flowing-phase
+transport and proportional to exported mass. Lead hypothesis is now **frame
+quadrature of the breakthrough front** (241 frames at 0.0125 d spacing vs a
+front crossing the outlet on the same timescale): the budget's trapz of q·c_out
+misses a sliver of the front, and the solver itself may be exactly conservative.
+Decisive test running: NFrames 241 → 481 → 961; ~4× reduction per doubling
+convicts quadrature, a plateau convicts the solver.
 
 ## Steps
 

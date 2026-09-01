@@ -18,6 +18,10 @@ arguments
     % probeMassClosure feeds no PAT (influent slot 4 is zero), so its outflow
     % term is never exercised -- the very gap Finding 5 flagged. Feed it here.
     opts.PatInflow (1,1) double = 1.75e-4
+    % The budget integrates q*c_out over the saved frames; a residual that
+    % falls ~4x per doubling here is trapz error on the breakthrough front,
+    % not a solver leak.
+    opts.NFrames (1,1) double = 241
 end
 here = fileparts(mfilename("fullpath")); W = fileparts(fileparts(here));
 addpath(genpath(fullfile(W,"src"))); addpath(fullfile(W,"analysis")); addpath(here);
@@ -66,14 +70,21 @@ infl = [2.68e-3, 1.00e-2, 0.0, opts.PatInflow, 9.10e-3, 6.23e-3, 2.00e-5, 0.0, 1
 r = simulate(State(f, m), InflowConcentrations=infl, SimulationTime=opts.Days, ...
     TimeStep="adaptive", AdaptiveMaxDt=opts.MaxDt, ...
     ImplicitOsmosis=implicitOsmosis, ImplicitDispersion=implicitDispersion, ...
-    FrameNumber=241, Quiet=true);
+    FrameNumber=opts.NFrames, Quiet=true);
 checkRunFlag(r, "probeMassClosureIsolation:" + opts.Variant);
 
 C = r.Frames.Concentrations; ts = r.Frames.Time(:);
 z = f.GridPoints.Centers(:); dz = f.GridSize;
 eps = computePorosity(f, z);
 q = f.InflowVelocity;
-names = [m.Particles.Name];
+% Audit liquids too: they exit at ~half the influent concentration, so they
+% exercise the outflow numerics far harder than any particle — and they carry
+% no attachment, which makes them a discriminator between a generic
+% flowing-transport defect and a particle-only term. (probeMassClosure only
+% ever audited particles; HET/PHO export ~2e-6 of supply, so their clean
+% residuals say nothing about export-proportional errors.)
+names = [m.Particles.Name, m.Liquids.Name];
+kPart = numel(m.Particles);
 out = struct("tag", "massclosure_" + opts.Variant, "days", opts.Days, ...
     "NCells", opts.NCells, "species", names);
 fprintf("MASS CLOSURE ISOLATION variant=%s (N=%d, %g d, q=%g):\n", ...
@@ -82,7 +93,11 @@ fprintf("%6s %12s %12s %12s %12s %10s\n", "sp", "dM(eps)", "supply", "export", "
 for k = 1:numel(names)
     nm = names(k);
     cin = infl(k);
-    total = C{nm,"Matrix"}{1} + C{nm,"Enclosed"}{1} + C{nm,"Flowing"}{1};   % N x frames
+    if k <= kPart
+        total = C{nm,"Matrix"}{1} + C{nm,"Enclosed"}{1} + C{nm,"Flowing"}{1}; % N x frames
+    else
+        total = C{nm,"Enclosed"}{1} + C{nm,"Flowing"}{1};   % liquids have no matrix phase
+    end
     M = sum(eps.*total, 1)*dz;                                                % eps-weighted stock
     cout = C{nm,"Flowing"}{1}(end, :);
     supplyCurve = q*cin*(ts - ts(1));
@@ -103,5 +118,5 @@ fprintf("PAT R(t) at t = "); fprintf("%.2f ", ts(idx)); fprintf("d:\n  ");
 fprintf("%12.4e ", rc(idx)); fprintf("\n");
 out.ts = ts; out.eps = eps; out.z = z; out.SolverOptions = r.SolverOptions;
 save(fullfile(S, "massclosure_iso_" + opts.Variant + "_n" + opts.NCells + ...
-    "_" + opts.Days + "d.mat"), "out", "-v7.3");
+    "_" + opts.Days + "d_f" + opts.NFrames + ".mat"), "out", "-v7.3");
 end
