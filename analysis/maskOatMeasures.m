@@ -19,8 +19,12 @@ arguments
     resultsDir (1,1) string = "analysis/results/oat"
     opts.LCap (1,1) double = 2.9
     opts.OutFile (1,1) string = ""   % default: <resultsDir>/measures_masked.csv
+    % Scope to one scenario's dirs when several share resultsDir
+    % (log_oat_pulse_*, log_oat_startup_*, ...): the param-dedupe would
+    % otherwise silently keep whichever scenario sorts first.
+    opts.Pattern (1,1) string = "log_oat_*"
 end
-d = dir(fullfile(resultsDir, "log_oat_*", "measures.csv"));
+d = dir(fullfile(resultsDir, opts.Pattern, "measures.csv"));
 assert(~isempty(d), "maskOatMeasures:noMeasures", "no per-parameter measures under %s", resultsDir);
 rows = {}; compat = {};
 for i = 1:numel(d)
