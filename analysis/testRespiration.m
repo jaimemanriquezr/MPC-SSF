@@ -6,7 +6,7 @@ W = fileparts(fileparts(mfilename("fullpath")));
 % Off by default: original 5-reaction, 9-component model.
 m0 = modelLund();
 assert(length(m0.Reactions) == 5 && length(m0.Components) == 9);
-assert(m0.Reactions(2).MinimumLightFactor == 0.01);
+assert(m0.Reactions(2).MinimumLightFactor == 0.0);   % dark floor retired preset-wide 2026-08-26
 
 % On: PG appended as 5th particle; growth stores f; r6 grows PHO on PG.
 f = 0.2;  Y = 0.63;

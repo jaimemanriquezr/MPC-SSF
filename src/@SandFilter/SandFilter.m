@@ -107,8 +107,19 @@ classdef SandFilter
         end
 
         function obj = set.GridPoints(obj, points)
+            % Accepts EITHER a vector of cell boundaries (the normal path, from
+            % addGridPoints) OR an already-built {Boundaries, Centers} struct.
+            %
+            % The second case is not decorative: load() restores properties by
+            % ASSIGNMENT, so a saved SandFilter feeds this setter its own stored
+            % struct. Without the idempotent branch, points(1:end-1) on a 1x1
+            % struct degenerates and the property comes back EMPTY -- every
+            % SandFilter inside a saved Results silently lost its grid, so z, dz
+            % and n0 were unrecoverable from the results file alone.
             if isempty(points)
                 obj.GridPoints = struct.empty;
+            elseif isstruct(points) && isfield(points, "Boundaries") && isfield(points, "Centers")
+                obj.GridPoints = points;                 % already canonical
             else
                 points = points(:);
                 centers = 0.5*(points(1:end-1) + points(2:end));

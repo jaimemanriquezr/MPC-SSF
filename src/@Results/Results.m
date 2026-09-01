@@ -7,6 +7,11 @@ classdef Results
         TimeFinal
         Flag
         SimulationData
+        % The exact solver configuration this run used. Carried WITH the data so
+        % a result is self-describing: scheme, boundary condition, timestep caps
+        % and the implicit-treatment switches travel with the frames rather than
+        % living in a filename or a lab notebook. Set by simulate().
+        SolverOptions SolverOptions = SolverOptions.empty
     end
 
     methods
@@ -26,6 +31,7 @@ classdef Results
             obj.TimeFinal = 0;
             obj.Flag = "UNINITIATED";
             obj.SimulationData = [];
+            obj.SolverOptions = SolverOptions.empty;
         end
 
         function obj = plus(obj1, obj2)
@@ -37,6 +43,10 @@ classdef Results
         plotConcentration(obj);
         
         function plot(obj, variable)
+            arguments
+                obj Results
+                variable = "biofilm"
+            end
             switch variable
                 case {"biofilm", "phi_b"}
                     plotBiofilm(obj);

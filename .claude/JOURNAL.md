@@ -820,3 +820,460 @@ machinery.
 4. Re-run cover sweep and legacy match: they predate BOTH the kappa fix and the
    upwind default.
 5. The summer/winter inversion is a manuscript-level question, not a solver one.
+
+## 2026-08-24 — Three-scheme Solver A drift
+
+Armed `plotSolverADrift` for all three cohesion schemes and ran them as a Slurm
+array on cosmos (job 3534837), plus shin/bailo locally for a machine control.
+
+- **Fixed a blocker first**: `simulate.m` free-running diagnostic gated on
+  `if ~useBailo`, so `matched` was advanced by the SHIN operator (`lhsPar`). A
+  matched arm would have silently measured shin. See
+  `.claude/decisions/2026-08-24-matched-free-running-branch.md`.
+- **Fixed a latent plotter bug**: `D = D{k}` inside `for k = 1:2` clobbered the
+  cell array, so the peaks overlay had never rendered and the last tile's
+  `cellfun(@max, D)` would have thrown.
+- **Split runner from plotter**: new `analysis/probes/probeSolverADrift.m` runs
+  one scheme; `plotSolverADrift` is now the plot half and generalises to N
+  schemes. That split is what allows the array.
+- **Result overturns the hypothesis**: bailo did NOT subsume matched. Drift:
+  matched 0.00% << shin 9.59% < bailo 14.17%. Matched's zero is tautological
+  (its u-row is Solver B's update), which is what component-elimination wants but
+  costs the independent check.
+- **New concern**: the authoritative phi_b differs by 1.6% between bailo and
+  shin/matched — a modelling-level disagreement, unresolved.
+
+Next: decide the reference scheme on accuracy (MMS / refinement), not on drift;
+then the secant splitting; then the zeta_1 sweep {0.01, 0.05, 0.15, 0.27}.
+
+## 2026-08-24 (later) — Campos2002 / Demir2017 vs the model
+
+Compared the field data against Manriquez2026's figures and the current code.
+
+- **Data target:** biomass IN the sand, top 1.5-2 cm, monotone logistic to ~97 d,
+  monotone hydraulic-conductivity decline. Campos2002 top-2 cm holds ~53% of top-10 cm
+  biomass; Demir2017 "mainly the uppermost 1.5 cm".
+- **Current code:** 96.9% of biomass in the SUPERNATANT at 90 d; bed peaks at 10 d then
+  loses 8.8x; top 2 cm holds only 10-16% of bed biomass. Kozeny-Carman proxy on the bed
+  rises then FALLS -- the model cannot clog.
+- **Published figures:** Fig 9(c) (total mass) is reproduced and monotone, which is why
+  the redistribution failure was never caught -- the diagnostic that was plotted passes.
+  Fig 9(a)/(b) is not reproduced even at 20 d (published bed ~0.55 / sup ~0.15; ours
+  0.278 / 0.325, inverted).
+- **Three distinct problems, three levels:** (1) a regression, current code only --
+  bisect kappa activation / IsUpwinded / normalised light; (2) too diffuse within the
+  bed, published model too -- a cohesion-closure issue, and independent empirical
+  support for raising zeta_1; (3) covered/uncovered light insensitivity, present in the
+  PUBLISHED figures -- see `.claude/decisions/2026-08-24-light-insensitivity-covered-uncovered.md`.
+
+Next: bisect the regression before any calibration; nothing downstream is meaningful
+while the biofilm leaves the sand.
+
+## 2026-08-25 — Deep study (cosmos 3537763)
+
+10 arms, N=500 (one N=1000), 20 d chained in 10 d legs. Report:
+`reports/deep-study-2026-08-25.typ`. Figure:
+`analysis/results/figures/deepstudy_2026-08-25.png`.
+
+**Infrastructure built first, because chaining was the prerequisite:**
+- `probeRestart.m` — differences a chained run against a continuous one, field by
+  field. PASS: no snapshot field zeroed, worst difference 4.36e-05. Seeding the
+  continuation dt (rather than cold-starting at 1e-8) improved it 3x from 1.26e-04,
+  confirming the residue is the adaptive stepper re-ramping, not lost state.
+- `stateFromFrame.m` / `rehomeState.m` — extracted from manuscriptExperiments'
+  locals. `grab` silently substituted ZEROS for scalar-stored components; it now
+  warns, and the snapshot carries an `allZero` list that probeChain treats as fatal.
+- `probeChain.m` — runs in <=10 d legs, saves per leg, resumes by skipping completed
+  legs. Saves profile history, bed/supernatant trajectories AND effluent for all 9
+  species.
+- `checkRunFlag.m` wired into every probe (see 2026-08-24).
+
+**Results:**
+- NUMERICAL: converged at N=500/MaxDt=3e-6. Bed biomass agrees to 4 sig figs across
+  MaxDt 1e-6 -> 5e-5 (50x), and 0.74% between N=500 and N=1000.
+- MECHANISM: the bed peak-and-decline is driven by the SUPERNATANT LAYER, not
+  detachment. Decline vs final supernatant fraction correlates at r = 0.91. Doubling
+  detachment gives the SMALLEST decline (1.09x vs 1.25x baseline) because it
+  suppresses the layer. Detachment hypothesis (Leg A) refuted as primary.
+- With DetachScale = 0 the run CLOGS at t = 6.46 d in cell 1, the top of the water
+  column, at 99% biofilm. Detachment is the only bound on total biomass.
+- VALIDATION: effluent O2 is invariant across the entire sweep (44.4-44.7% removal),
+  matching Campos2002's covered/uncovered TOC/DOC result (25/23 vs 23/23% despite
+  4x biomass). Corollary: effluent data cannot discriminate zeta_1, detachment or BC.
+
+**Bugs found and fixed today:** leg-2 time offset in probeChain (simulate returns
+ABSOLUTE frame times when the state carries a start time; adding tStart
+double-counted, putting leg 2 at t=20..30).
+
+Next: an arm with biofilm light-attenuation disabled, to split "shading" from
+"substrate capture" within the supernatant-layer mechanism.
+
+## 2026-08-25 (later) — ζ₀=5 to 40 d, N=1000 check, critique + adversarial review + code review
+
+- **ζ₀ = 5, N=500 extended to 40 d** (legs 5–6, hourly frames). Does not clog: φ_b(0)
+  saturates at 0.845. Bed keeps declining (1.12× from the 16.8 d peak); total biomass
+  at steady state by 40 d; supernatant 41.5 %. Figure
+  `analysis/results/figures/zeta0_5_n500_40d.png`. Record:
+  `.claude/decisions/2026-08-25-zeta0-tradeoff.md` (the ζ₀ arms had no durable record
+  until now — critic finding).
+- **N=1000 at ζ₀=5, 10 d**: bed +0.37 % vs N=500, profile L2 0.25 %. Converged.
+- **Mass closure CLOSED**: new `analysis/probes/probeMassClosure.m` (zero biology,
+  ε-weighted stocks): residual 1.1e-9 of supply for HET and PHO. The 08-21c "transport
+  creates mass" was the unweighted probe integral. Quarantine lifted for ε-weighted stocks.
+- **Head-loss diagnostic** `analysis/headlossKozenyCarman.py` (post-processing only).
+  H/H₀ crosses 3× at 4.5–5.0 d in EVERY ζ₀ arm, then falls as the bed loses biomass.
+  Operational clogging is 10–20× too fast vs Demir2017 and non-monotone; ζ₀ irrelevant.
+  Table: `analysis/results/headloss_zeta0_2026-08-25.txt`.
+- **`.claude/CRITIQUE.md`** written (scoreboard vs goal, unverified foundations,
+  ζ₀ honestly, light, OAT, process, proposals), then adversarially reviewed by a critic
+  agent (§9) and answered (§11). Biggest hits taken: Bae2023 row was inverted (field
+  W/S 1.15 SUPPORTS winter ≥ summer — the published summer ≫ winter figure may be the
+  wrong target); OAT ran at 30 cells, not 100, and already includes ζ₀ and β; the
+  "same root cause" link between covered/uncovered and winter/summer is a hypothesis,
+  not a finding; `coverCases.m` already encodes the proposed cover probes (Stages B/B′/C).
+- **`.claude/CODE-REVIEW-2026-08-25.md`** by a third agent (src/ only, report only).
+  Should-fix: `Model.m:41` detachment arity; `pathogenModel.m:72` 1.4e-5 vs paper 0.14;
+  dead paths `Model(Preset=)`, `State.VolumeFractions`, `Results.concatenate`; Solver A
+  uses dt_old in adaptive mode; `SolverOptions.override` skips validation; CFL bound
+  hard-codes the Lund layout; `modelLund.m:170` sqrt without abs. Hot-loop bloat list.
+  Nothing applied.
+- mg→µg Campos correction swept into `decisions/2026-08-24-light-insensitivity-*.md`.
+
+Next (from CRITIQUE §7.4 as amended): run `slurm/bisect.sbatch`; add the
+seasonal-influent arm to `probeSeason90.m` and run the pair; run `coverCases` Stages
+A/B/B′/C at ζ₀=5; add a finite-value check to `checkRunFlag`; decide the code-review
+should-fix list with Jaime; then the 90 d steady figure and the OAT at N=500.
+
+## 2026-08-25 (evening) — photosynthesis was off; half-saturations corrected
+
+- Field-influent 2×2 (`chain_z0w_5_n500_field{,_dark}`) and the dark manuscript-influent
+  arm: lit = dark to 3 s.f. at BOTH influents. Root cause: `modelLund` K_NH4,PHO = 1.2e-2
+  → Monod 1.7e-4 at the surface, growth 5.4e-4/d vs death 0.37/d. The 08-20 audit had
+  found it; the preset never received the fix. Every run this week had photosynthesis off.
+- **`modelLund.m` half-saturations replaced with the audited set** (HET O2 2e-4, DOM 4e-3,
+  NH4 1e-6, HPO4 2e-5; PHO IC 1.2e-3, NH4 2e-5, HPO4 2e-5; hydrolysis 0.1). Old values
+  kept in a comment. `testRespiration`/`testCardinal` pass; smoke simulate OK. Decision:
+  `.claude/decisions/2026-08-25-half-saturations-corrected.md`. NOT changed: MarkerGrowth
+  (`pathogenModel.m:55`, drives the OAT), respiration O2 half-sat, SSF.jl mirror + goldens.
+- `probeChain` gained `LightScale`, `Influent`, and saves `*_ABORTED.mat` on non-OK flags.
+- ζ₀=1 N=500 re-run: CLOGGED 17.00 d as a one-cell spike at z=0 (0.986; first bed cell
+  0.648). N=1000 arm running.
+- Influent check: PHO 1e-2 is ~15–20× field (Campos2006b), HET 2.68e-3 rests on a 6 µm³
+  cell; IC derivation inverted in the text. Field set: HET 1.5e-4, PHO 5e-4, HPO4 5e-6.
+
+ALL pre-2026-08-25-evening results are on the crippled phototroph and must be re-run.
+
+## 2026-08-25 (night) — Reichert respiration, kinetics audit, preset fixed
+
+- Corrected-K 2×2: photosynthesis ran (5 g/m³ O₂ diel, noon 10.1 > influent) but biomass
+  unchanged; enclosed NH₄ 70× below flowing. Diagnosed asymmetric O₂ stoichiometry
+  (growth +0.93, death +0.20, PG-excess sink a biomass source).
+- **`RespirationForm="reichert"`** added to `modelLund` (RWQM1 (10): PHO −1, O₂ −0.9301,
+  IC +0.36, NH₄ +0.06, HPO₄ +0.01; 0.1/d, θ 1.047, K_O₂ 2e-4). Decision
+  `2026-08-25-reichert-respiration.md`. `probeChain` uses it.
+- Six Reichert arms (`z0w_5_rr_*`): phantom carbon gone (bed biomass halves, POM export
+  13.8→5.7 g/m³ < particulate import); **first light effect on biomass** — manuscript-influent
+  lit mat 2.6× dark; but O₂ still supersaturated (mean 11.9) because heterotrophs were off
+  (μ_HET 0.018/d uncorrected), and at field influent lit ≡ dark (+N changes nothing: 91 %
+  of phototrophs sit in the dark sand). Figure `zeta0_5_reichert_influent_x_light.png`.
+- ζ₀=1 Dirichlet vs Neumann (corrected K): clog 15.18 vs 14.07 d; BC acts on one cell via
+  κ/dz² = 0.25; the 0.84→0.66 jump at z=0 is Solver-B matrix transport (wall), forms at
+  day 5–6 when the supernatant catches the saturated bed (0.69). Figures
+  `z0_1_neumann_vs_dirichlet{,_t468}.png`.
+- **Kinetics audit vs Wolf2007 Table VI + Reichert2001 Table 8, preset fixed**
+  (`2026-08-25-kinetics-wolf-reichert.md`): μ_HET 0.018→2.0 (θ 1.0725), μ_PHO 5.5→2.0,
+  d_HET 2.0→0.4 (θ 1.0725), d_PHO 0.4→0.1 (θ 1.047), k_hyd 0.09→3.0 (θ 1.0725); half-sats
+  re-checked (Wolf/Reichert disagree on N: HET 10⁵×, PHO 6×). Tests pass, smoke OK
+  (0.5 d: O₂ max 9.12 ≈ influent, HET matrix 0.2 already).
+- Influent check: Chan2018 PDF holds no NH₄/NO₃ numbers (Table S1 not in documents/);
+  nitrate absent from the model. Plan `2026-08-25-covered-uncovered-contrast.md`.
+
+ALL runs to date predate the rate fix; the 2×2 must be re-run on the final preset.
+
+## 2026-08-26 — Campos route: respiration merged into death
+
+- Final-preset 2×2 + respiration sweep (`z0w_5_fp_*`): O₂ flipped from supersaturated
+  to near-anoxic at manuscript influent (0.3–1 g/m³; bed mineralises 12.7 g/m³ of
+  influent particles), 8.5 at field influent; POM export 14 → 0.09 g/m³; HET now 28 %
+  of the biofilm; lit mat 2.9× dark at manuscript influent. Sweep r = 0/0.1/0.276/0.5/1.0
+  flat and non-monotonic: respiration is not the O₂ lever. Figure
+  `zeta0_5_finalpreset_2x2_respsweep.png`.
+- DOM 1 mg/L at field influent: 2.7 % removal at 20 d — K_DOM 4 mg/L freezes HET growth
+  at its death rate (0.37 vs 0.37 /d). Lit ≡ dark.
+- Campos2006/2006b read: covered/uncovered contrast is imposed structurally (schmutzdecke
+  layer + 30 % carbon export to top 2 cm), uncovered bed biomass peaks then declines as the
+  mat takes over filtration, thicker mat → lower head loss (Nakamoto).
+- **Preset: d_PHO = 0.276 /d, θ 1.08 (Campos k_ra), no respiration reaction**
+  (`2026-08-26-campos-route-no-respiration.md`). Tests pass, smoke OK.
+
+## 2026-08-26 (early) — sweep wave 1: the lock is the flowing→enclosed transfer
+
+- Partner agent (Opus 5) proposal `.claude/PARTNER-2026-08-26.md`: target table T1–T9 with
+  sources, 22-arm sweep, verdict on walking back O₂ modifications (no; the O₂ problem
+  inverted), risks. Its live trap fixed: `modelLund` MinimumLightFactor default 0.01 → 0.0
+  (`testRespiration` updated).
+- N=200 vs N=500 (`*_n200` twins): bed/O₂/DOC/head loss within 2 % or 0.06 g/m³; the mat is
+  30 % small and 2 d late. N=200 for bed/O₂/DOC screening; N=500 for anything about the mat.
+- **K_DOM ladder** (field + DOM 1 mg/L): removal 2.7 → 8.5 → 10.2 → 10.8 % for 4e-3 → 1e-4;
+  saturates. Enclosed DOM is 500× below flowing, enclosed O₂ 20× — transfer-limited.
+- **Gate** (PHO_in 5e-5, DOM 3 mg/L, η_sand 150, N=500): nothing grows lit or dark
+  (bed 0.00038 vs 0.00034, no mat). The model cannot grow a biofilm; all past mats were trapped.
+- **Transfer ladder** (liquid TransportRate ×1/×10/×100/×1000 at field+DOM1, K_DOM 3e-4):
+  DOC removal 10 / 74 / 95 / 95 %; effluent O₂ 8.29 / 7.28 / 6.93 / 6.93 (Elemo window 2–5
+  consumed: ×10–×100 inside); bed +48–65 %; HET share 54 → 72 %. Saturates at ×100; ×1000
+  costs 5× wall for nothing. Lit ≡ dark at every rung (no mat at field loading).
+  600/d ≈ 400 µm diffusion length; ×10 ≈ 130 µm. With DOM_in = BDOC (~30 % of a 3–4 mg/L
+  DOC), 74 % BDOC removal ≈ 22–25 % total-DOC removal = Campos2002.
+- probeChain options added: KDOM, EtaSand, TransferScale (all recorded, guarded).
+- Launched wave 2: PHO_in ∈ {5e-4, 1e-3, 3e-3, 1e-2} × lit/dark at transfer ×10, K_DOM 3e-4,
+  DOM 1e-3, N=200.
+- **Wave 2, load ladder** (transfer ×10, K_DOM 3e-4, DOM 1e-3, HET_in = 0.268·PHO_in, N=200,
+  20 d; `chain_sw_P{5e4,1e3,3e3,1e2}_{lit,dark}`):
+
+  | PHO_in | O₂ out (consumed) | H/H₀ 20 d | top-2 cm µg C/g dry / wet | mat | lit/dark |
+  |---|---|---|---|---|---|
+  | 5e-4 | 7.32 (1.8) | 1.04 | 105 / 26 | none | ≡ |
+  | 1e-3 | 6.45 (2.65) | 1.08 | 187 / 47 | none | ≡ |
+  | 3e-3 | 3.85 (5.25, min 3.68) | 1.28 | 398 / 99 | none | +2 % |
+  | 1e-2 | 0.03 (anoxic) | 2.39, t(2×) 5 d | 701 / 175 | 0.0125 lit / 0.0056 dark | 2.2× mat |
+
+  T1 (Elemo 2–5 consumed, never < 3) is met for PHO_in 1e-3–3e-3; T6 (H/H₀ 1.3–1.8 at 20 d)
+  approached only at 3e-3; Campos's 60 µg C/g sits at ~5e-4 (dry basis) or ~1.5e-3 (wet).
+  No supernatant mat forms below 1e-2 and lit ≡ dark there — the mat is a trapping threshold,
+  not growth. Partner corrected my gate reading (it ran at transfer ×1); gate re-run at ×100
+  (`g2_*`) and a phototroph-only arm (`g3_*`, HET_in = DOM_in = 0) running at N=500.
+  F4–F6 (K_DOM 1.9e-3 / 4e-3 at ×10, 4e-3 at ×100; PHO_in 1e-3) launched.
+- Partner §G: state variable is wet mass, RWQM1 stoichiometry is per dry OM — a ~4× yield
+  error; fix = ρ_P/f_dry with influents scaled, φ_b path invariant. Needs Jaime's f_dry.
+- **F4–F6** (PHO_in 1e-3, DOM 1e-3, 20 d): BDOC removal 86 % (K 3e-4, ×10) / 54 % (K 1.9e-3
+  Campos, ×10) / 14 % (K 4e-3 Wolf, ×10) / 21 % (K 4e-3, ×100). As total-DOC removal (BDOC =
+  30 % of DOC): 26 / 16 / 4 / 6 %. Wolf's ASM K is too high at any transfer; Campos's ksCd
+  under-removes; Campos2002's 23–25 % sits at K_DOM ≈ 1e-3 with transfer ×10 (L_f ≈ 200 µm).
+- **Gate at transfer ×100** (`g2_*`, N=500): identical to ×1 — nothing grows (bed 0.00038,
+  no mat, enclosed O₂ 0.14 vs 8.96 flowing at z=0). Cause is the transfer FORM:
+  transL ∝ φ_enclosed/β, so a thin film cannot be fed whatever the coefficient. This is the
+  seeding lock. **Phototroph-only arms** (`g3_*`, HET_in = DOM_in = 0) aborted at 7 d with
+  NaN in HET matrix at z=0: hydrolysis quotient POM/HET = 0/0 when HET ≡ 0 (a guard is
+  missing in lookupQuotients). Re-launched as `g3b_*` with HET_in = 1e-7. Partner asked for
+  an area-scaled transfer form and the operating point.
+- **CORRECTION (08-26 morning).** `Frames.Concentrations` stores BULK values (per total
+  volume) for every phase; the enclosed-phase *concentration* is bulk/φ_e. Every
+  "enclosed/flowing" ratio I reported overnight compared bulk enclosed to bulk flowing, i.e.
+  was low by the factor φ_e (0.01–0.08). Recomputed locally: kd_1e4 (×1) DOM ratio 0.03,
+  O₂ 0.6 — still transfer-starved but 30×, not 500×; xf_100 ratio 0.94 (equilibrated);
+  **g2 gate ratio 1.00 — the thin film was fully fed and still did not grow.** The
+  "transfer form is the seeding lock" conclusion (and the partner's §H built on my numbers)
+  is therefore WRONG as an explanation of the gate. The film form (D/L_f², now implemented
+  behind `SolverOptions.TransferForm="film"`, exact relaxation, CFL term dropped) remains
+  the physically justified replacement for the uncited 600/d, but it is not why nothing
+  grows at low load.
+- Local-concentration analysis of the gates: at the sand surface at noon, enclosed HPO₄ =
+  5 µg/L → Monod 0.20 (binding), gross growth 0.33/d vs loss 0.256/d — net negative on the
+  daily mean. Autotrophic growth from a clean start is P-limited at the 5 µg/L set from
+  Chan2018 "<10 µg/L total P"; with trapped biomass recycled P reaches ~20 µg/L and noon
+  net is +0.6/d (a bistability signature — Campos2006b's lag phase). Partner §K–N: no paper
+  in documents/ reports an influent phosphate; our K_HPO₄ 2e-5 is Reichert's, while Campos's
+  own ksp range is 1e-6–5e-5. Launched N1 (KHPO4 ∈ {2e-5, 5e-6, 1e-6} lit/dark) and N4
+  (HPO₄_in 2e-5 scenario, lit/dark) at the operating point (PHO 1e-3, DOM 1e-3, K_DOM 3e-4,
+  transfer ×10, N=200). Film-form A/B (`fa_film_lit`) running. `probeChain` gained KHPO4.
+- **Film-form A/B** (`fa_film_lit` vs `sw_P1e3_lit`, PHO 1e-3, K_DOM 3e-4): film gives
+  enclosed/flowing (local) 0.96–1.00 vs 0.13–0.25 at constant ×10; BDOC removal 95 vs 86 %;
+  O₂ 6.29 vs 6.45; bed +3 %; and 30 % less wall (CFL transfer term gone). Film ≡ the ×100
+  saturation, as predicted. With film, K_DOM must rise toward Campos's 1.9e-3 to land 23–25 %.
+- Effluent particulates: HET 6-log, PHO 4-log removal vs Bae2023's 98.7–99.3 % (2-log) —
+  attachment 547/d vs detachment 0.14/d is 10⁴ too retentive. `probeChain` gained
+  `DetachForm` ("sqrt" | "linear", equal at 18 m/d) for a detachment sweep.
+- **P half-sat ladder (N1) + P-replete scenario (N4)**: nothing. lit/dark bed ratio 1.004 →
+  1.011 for K_P 2e-5 → 1e-6; HPO₄_in 2e-5 gives 1.009. φ_b(0) lit 0.200 vs dark 0.176 (+14 %)
+  is the only light signal. Phosphorus is NOT the lock. Daily-mean arithmetic (Steele mean
+  0.435 at the sand, 17 h of light): preset gross 0.42/d vs loss 0.256 → +0.16/d with P
+  unlimited — growth is positive, yet no contrast: light acts on ONE cell (z=0; e-folding
+  1.1 mm below, 3 h flushing above with attachment ∝ φ_b in the water column), so the
+  phototrophs are retained only in the dark sand. The lock is retention in the lit zone.
+  Launched growth/loss ladder on the film form: d_PHO 0.1, μ_PHO 3.0, both, both+η_sand 150,
+  lit/dark (`gl_*`). `probeChain` gained MuPHO, DPHO.
+- **Detachment sweep** (film, PHO 1e-3, 20 d): total particulate removal (HET+PHO+POM out vs
+  in) is **98.5 %** at ×1 — already inside Bae2023's 98.7–99.3 %; the "6-log" was HET alone.
+  ×3 → 95.2 %, ×10 → 63 %. Linear ≡ sqrt at this loading (φ_b max 0.19; v_f barely rises);
+  the forms only diverge near pore closure. Top-2 cm carbon 217 → 77 (×3) → 29 (×10) µg C/g
+  (dry basis); ×3 lands on Campos's 60 at the cost of 3 points of particle removal. Keep ×1;
+  revisit linear at ζ₀ = 1 (interface spike) only.
+- **Film transfer rejected as default** (`2026-08-26-film-transfer-rejected.md`): it moves
+  the φ_b/HET maximum to 2–5 cm depth (constant ×100/×1000 do the same); Jaime: no
+  reasonable simulation has φ_b peaking inside the bed. Cause: leaked hydrolysate advected
+  downstream. Constant ×10 keeps the surface maximum. Film-form δ/μ arms killed and
+  relaunched on constant ×10; two film diagnostics (N=500, DOM_in=0) left running.
+- Growth/loss ladder (film): d_PHO 0.1 → bed +42 % symmetric lit/dark; μ 3.0 nothing;
+  only η_sand 150 gives lit/dark 1.16 (bed), 1.08 (top 2 cm) and a first supernatant PHO
+  in the lit arm. Retention in the lit zone is the lock.
+- **Grid/light finding (decisive for the lit≡dark null).** Noon Steele factor per cell:
+  N=200, δ=5 mm, η_sand=1500 — the sweep grid — has NO cell inside the roughness layer
+  (the −0.5 cm cell has ε=1, no bare-sand attachment) and the z=0 cell is at L=0.16 (daily
+  mean ~0.07), z=+0.5 cm at 0.00. There is no lit cell that can hold biomass; every N=200
+  lit/dark null this morning is a grid artefact of the light–roughness coupling. N=500 has two
+  roughness cells (−0.4, −0.2 cm; ε 0.88/0.64; L 0.85/0.54) → the N=500 field arms showed
+  lit/dark 1.02. η_sand=150 lights z=0..+1 cm (L 0.79→0.42) → lit/dark 1.16. δ=2 cm at
+  N=200 gives a lit ramp cell (−1.5 cm, L 0.64, ε 0.85) but lit ≡ dark (1.000) because
+  growth there is P-limited (influent P, no recycling). Nothing has yet combined a lit
+  attaching zone with P relief. Launched `lz_{n500,d2cm,eta150}_kp_{lit,dark}` (K_P 1e-6).
+- δ=2 cm (constant ×10): φ_b(0) 0.385 (2× δ=5 mm), first supernatant PHO 0.0014, lit≡dark.
+  mu ×1 pair: lit/dark 1.004. mu ×10/×20 arms slow (stiff), still on leg 1 after 30 min.
+- mu ×10/×20 arms killed at 39 min (leg 1 unfinished, stiff); not part of the deliverable.
+- **Lit-zone × P arms (K_P 1e-6, constant ×10, PHO 1e-3, N=200)**: δ=2 cm → lit/dark 1.001
+  (nothing, even with a lit attaching ramp cell and P relieved); η_sand=150 → 1.133 bed,
+  1.131 top-2 cm. P relief adds nothing over η_sand alone (1.16 on film). Light into the
+  sand is the only lever and gives 13–16 %, not Campos's 4×. Structural: no mechanism holds
+  phototrophs in the light. N=500 pair pending. Deliverable: `reports/results-2026-08-26.pdf`.
+- **N=500 lit-zone × P pair**: lit/dark bed 1.036, top-2 cm 1.051, phototrophs above the sand
+  2.4× (0.00245 vs 0.00101 kg/m²), diel O₂ max 6.57 vs 6.48 — the first light response at
+  realistic loading, carried by the two resolved roughness cells; the bed itself moves 4–5 %.
+  Report updated and compiled: `reports/results-2026-08-26.pdf`. No jobs running.
+- **Parameter set chosen** (two independent picks, `.claude/PICK-A/B-2026-08-26.md`, reconciled
+  in `reports/results-2026-08-26.pdf` §8): PHO_in 3e-3 / HET 8e-4 / DOM 1e-3 / HPO₄ 5e-6;
+  K_DOM 3e-4 (1e-3 recommended), K_P 1e-6; μ_PHO 2.0, d_PHO 0.276, no respiration; transfer
+  constant ×10; detachment ×1 sqrt; η_sand 1500, δ 5 mm; N=500; ζ₀ 5, ζ₁ 0.27. Behaviours:
+  O₂ met (5.3 consumed, min 3.68), lit/dark met-small (N=500: 1.036/1.051/2.4× above sand),
+  monotone met, steady state partly, H/H₀ 1.28 partly, surface maximum met, DOC met/partly,
+  particulates met. Next: this set lit/dark at N=500 to 104 d on cosmos.
+- **ζ₀ = 1 with LINEAR detachment** (chosen set, N=500, lit/dark; `z01_set_lin_*`): no clog.
+  φ_b(0) 0.514 (interface cell, neighbours 0.38/0.32), supernatant 0.3 % of biomass (vs
+  30–40 % at ζ₀=5, manuscript influent), bed monotone to 20 d, H/H₀ 1.29 (in band),
+  O₂ 3.88 mean / 3.58 min, top-2 cm 352 µg C/g dry, lit/dark bed 1.045, top-2 cm 1.053,
+  PHO above sand 2.46×. Linear detachment caps the z=0 pile-up (k_det 0.9–2.8/d there vs
+  0.35–0.65 with sqrt). This supersedes ζ₀=5/sqrt as the working set.
+- CRITIQUE §12 added: buoyant mat export at the top boundary is a missing mechanism.
+  Detachment moves biomass into the flowing phase and it re-attaches ~3 cm into the bed; the
+  model has no upward route and no overflow. Nakamoto's mat is lifted by photosynthetic O₂
+  bubbles and drains out through the overflow with the solids it trapped — which is why his
+  uncovered filters clog LESS while Campos2002's clog EARLIER (interstitial biomass). We are
+  structurally locked into the Campos2002 regime; the manuscript must claim only that.
+- **E4: 2× field influent to 60 d** (`fld2x_{lit,dark}`, 6 legs, 1.71 h per arm). First run to
+  reach steady state: last 10 d change +0.14 % bed, −0.006 g/m³ O₂. O₂ consumption 2.96 mg/L
+  (min 6.07) — Elemo window, at steady state; BDOC 89 % ≈ 27 % total DOC — Campos band; bed and
+  head loss monotone; surface maximum; supernatant 0 %. **H/H₀ plateaus at 1.10 vs Demir's
+  2.1–4.2 at 55 d — measured, not extrapolated: this set never clogs.** Light contrast keeps
+  growing while all else saturates (PHO above sand 2.54×, bed 1.040) — evidence the light
+  response is growth, not trapping. Recorded as E4 in EXPERIMENTS.md; figure
+  `analysis/results/figures/fld2x_60d.png`.
+- **E5: μ_PHO ×10/×20 at N=500** (`mu500_x{10,20}_{lit,dark}`, ζ₀=5, √-detachment — launched
+  pre-E3). A 20× growth rate gives lit/dark bed 1.083 vs 1.025 at the preset, and 40/d is
+  identical to 20/d — saturated. Supernatant stays 0.5 %; H/H₀ and O₂ unmoved. μ_PHO is closed
+  as a lever: the contrast is limited by the ~4 mm of lit attaching zone, not by growth rate.
+  Cost: 2.8 h and 5.0 h per lit arm (5–9× the preset) — stiff reaction term. No figures.
+  Recorded as E5.
+
+## 2026-08-27
+
+### What we accomplished
+
+Branch `julia-port`; **no commits made this session** — all work is uncommitted (13 modified
+tracked files, 112 untracked). Last commit remains `88c8b15`.
+
+**Model corrections (all with decision files, all uncommitted):**
+- `src/presets/modelLund.m` — half-saturations replaced with the Wolf2007/Reichert2001 set
+  (`2026-08-25-half-saturations-corrected.md`); growth/loss rates and temperature factors
+  audited and replaced (`2026-08-25-kinetics-wolf-reichert.md`: µ_HET 0.018→2.0, µ_PHO 5.5→2.0,
+  d_HET 2.0→0.4, k_hyd 0.09→3.0, θ from Reichert β); phototroph respiration merged into a single
+  Campos k_ra = 0.276/d loss with no respiration reaction
+  (`2026-08-26-campos-route-no-respiration.md`); dark-growth floor default 0.01→0.
+- `src/@State/simulate.m` — film-form liquid transfer added behind
+  `SolverOptions.TransferForm="film"` and then **rejected as default**
+  (`2026-08-26-film-transfer-rejected.md`: it moves the φ_b maximum 2 cm into the bed).
+- `analysis/probes/probeChain.m` — options added: `LightScale`, `Influent`, `Respiration`,
+  `KDOM`, `KHPO4`, `EtaSand`, `TransferScale`, `TransferForm`, `DetachForm`, `MuPHO`, `MuHET`,
+  `DPHO`, `Delta`; all recorded in `rec` and covered by the resume guard; partial trajectories
+  now saved as `*_ABORTED.mat` on a non-OK flag.
+- `analysis/headlossKozenyCarman.py` (new) — Kozeny–Carman bed head-loss diagnostic.
+- `analysis/testRespiration.m` — updated for the zero dark floor. Tests: `testRespiration`
+  and `testCardinal` **ran and passed** after every preset change; `checkcode` clean.
+
+**Experiments** (all in `EXPERIMENTS.md`, E1–E6, with commands, parameters, wall times,
+output files and figures):
+- E1 field / 2× field at the working set, 10 d — O₂, DOC, particulates in band.
+- E2 µ_HET ladder — **rejected as a lever**: lowering µ_HET buys O₂ only by exporting DOM.
+- E3 ζ₀ = 1 + linear detachment — no clog, supernatant 0.3 %; established the working set.
+- E4 2× field to **60 d** — first steady state (last 10 d: bed +0.14 %, O₂ −0.006 g/m³);
+  O₂ 2.96 mg/L consumed, BDOC 89 % (≈27 % total DOC), monotone, surface maximum;
+  **H/H₀ plateaus at 1.10 vs Demir's 2.1–4.2 — this set never clogs**; light contrast still
+  growing at 60 d (PHO above sand 2.54×) — evidence the response is growth, not trapping.
+- E5 µ_PHO ×10/×20 at ζ₀ = 5 — saturates; 40/d ≡ 20/d.
+- E6 µ_PHO ×10 on the working set, **run on cosmos** (job 3544074, 4:33 + 1:02) — bed contrast
+  1.071, top-2 cm 1.093, supernatant still empty.
+
+**Critique and analysis:** `.claude/CRITIQUE.md` §10–12 (§12 new: buoyant mat export at the top
+boundary is a missing mechanism — Nakamoto's mat is lifted by photosynthetic O₂ and leaves via
+the overflow, which is why his uncovered filters clog *less* while Campos2002's clog *earlier*;
+we are structurally locked into the Campos2002 regime). Two partner-agent picks
+(`PICK-A/B-2026-08-26.md`) and the reconciled set in `reports/results-2026-08-26.pdf`.
+Literature side-by-side figure `analysis/results/figures/side_by_side_literature_2026-08-26.png`.
+
+**Infrastructure:** cosmos brought current (`src/`, `analysis/` rsynced; corrected preset
+verified remotely); `slurm/mu_z01.sbatch` added there.
+
+### Plan for next session
+
+1. **Decide the wet/dry mass convention** (f_dry). It sets whether 1e-3 *is* Campos's field
+   influent in our units, moves every µg C/g figure by ~4×, and decides whether the model has a
+   single self-consistent operating point. Nothing downstream is settled without it.
+2. Submit the **104 d lit/dark pair** at the working set on cosmos (Campos's horizon; contains
+   Demir's 55 d) — the only run that can settle the head-loss trajectory and the top-2 cm
+   comparison at d97 like-for-like.
+3. Decide whether to pursue the clogging behaviour: it needs a higher particulate load (3e-3
+   gave H/H₀ 1.29 at 20 d, still short) or the surface-mat mechanisms of CRITIQUE §6/§12.
+4. Seasons on the corrected preset (never run) and the OAT at the settled set (still on the
+   pre-audit model, at 30 cells, with pathogen removal as its only output).
+5. Write the decision file for the linear detachment form (physics argument: shear ∝ v/r
+   through a closing pore) — currently in use with no record.
+
+### Open questions / risks
+
+- **Wet vs dry mass** — the state variable is wet (ρ_P 1117 from cell volume × density) while
+  RWQM1 stoichiometry is per dry organic matter; yields are ~4× too strong per kg of state
+  variable. Fix = ρ_P/f_dry with influents scaled; φ_b, head loss, clogging and detachment are
+  invariant, which is also the verification gate.
+- **The model cannot clog at realistic loads.** E4 reaches hydraulic steady state at H/H₀ = 1.10
+  and stays there; no filter run would ever end.
+- **The covered/uncovered contrast is structural, not parametric.** µ_PHO, K_HPO₄, HPO₄_in, δ,
+  η_sand and the transfer form have all been swept; the contrast stays at 3–9 % in the bed
+  against Campos's 4×. The binding constraint is the ~4 mm lit attaching zone (CRITIQUE §6).
+- **Two uncited numbers** in the working set: K_DOM 3e-4 and the ×10 transfer multiplier.
+- **`pathogenModel.m:55` MarkerGrowth** still carries the pre-audit half-saturations and drives
+  the whole OAT campaign; untouched deliberately, needs its own decision.
+- **Operator error:** local `chain_mu_z01_x10_*` files were deleted while assuming they were
+  partial when the dark arm had finished; cosmos regenerated them. Verify before deleting.
+- **112 untracked files and 13 modified** on `julia-port`, including `simulate.m` and the whole
+  preset. A crash or a bad rsync loses two days of work.
+
+## 2026-08-27/28 — autonomous multi-agent session + Manriquez2026 figure recreation
+
+Two Opus 5 agents (model/campaign) with a Fable 5 critic; then a recreation phase. Written
+retrospectively by the critic — the per-agent plan files the repo convention asks for were NOT
+written before implementation; this entry and the decision file are the record.
+
+**Done** (details: EXPERIMENTS.md E8/E9/P1/P2, `reports/autonomous-2026-08-27.{typ,pdf}`,
+`.claude/decisions/2026-08-27-pathogen-model-audit.md`):
+- E9: E4 extended to 104 d — steady state terminal, H/H₀ 1.095, Demir unreachable by run length.
+  New finding: net N/P mineralisation (effluent NH₄ 8.4×, HPO₄ 6.6× influent), unvalidated.
+- E8 load ladder 1×/4× field to 60 d: every axis monotone in load; 4× reaches terminal H/H₀ 1.19
+  at O₂ consumption 4.44 — clogging and realistic O₂ not jointly reachable from load.
+- pathogenModel audited (MarkerGrowth → audited HET row + HPO₄ term; ζ₀/detachment/flowing-
+  inertness now options). P1: 8 pulses on the 60 d filter — the bed passes the pulse
+  (L_min 0.07–0.16); PAT export term does not close (5e-5) → log removal defensible only to
+  L≈2.9; 100× clogs. OAT campaign staged, not run (`slurm/oat_pulse.sbatch`).
+- Figure recreation (`analysis/recreateFigsManriquez2026.m`, figures in
+  `analysis/results/figures/recreation/` + README): all results figures in the published design
+  on working-set data. Support runs: `fld2x_winter` (90 d, 3 °C, winter light; probeChain gained
+  `Temperature`/`LightForm`), `fld2x_cov01` (1 % light, 30 d), 20 d scrapes, day-37 pulses incl.
+  the 1e-3× "Pulse 2" (the published BigPulse pairing was 1e-3×, not 100×; 100× clogs at
+  day 30.43 and is not reproducible on the working set).
+- `analysis/plotBiologicalActivity.m`: reaction-term activity figure, validated against the O₂
+  balance (−3.4 %); the filter is overwhelmingly heterotrophic, light adds 2–7 % per term.
+
+**Learned**: the working-set model INVERTS the published seasonal ordering — winter ≥ summer in
+the bed at 90 d (rec_biofilm_seasons) — consistent with Bae2023's standing-stock reading and the
+probe-chain result the seasonal confound study isolated. O₂ consumption is by design
+(decision: the audit made the filter a net O₂ consumer; correct the published caption, not the
+model).
+
+**Next**: f_dry decision; diagnose the PAT export non-closure (`simulate.m:921-944`); find a
+measured effluent NH₄/HPO₄ to test the mineralisation; submit the OAT once both are settled.

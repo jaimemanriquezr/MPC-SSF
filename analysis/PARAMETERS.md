@@ -4,6 +4,86 @@ Anchor run of the decided methodology in MATLAB (`analysis/logOatCampaign.m`), m
 the Julia campaign (`julia/analysis/log_oat_sensitivity.jl`) with the 2026-08-18 design
 decisions applied. Plus the PHO bloom study (`analysis/phoBloomStudy.m`).
 
+> **2026-08-27 — everything below the next section documents `Preset = "campaign"`, the
+> 2026-08-18 anchor, which ran on the PRE-AUDIT model.** The campaign to be run now is
+> `Preset = "workingset"`; its table is the new section
+> **"The 29 parameters — `Preset = \"workingset\"`"** immediately after this note. The old
+> section is kept unchanged because the completed Julia OAT/Sobol results behind
+> `sensitivity.tex` were produced with it and must stay reproducible.
+
+## The 29 parameters — `Preset = "workingset"` (2026-08-27, NOT YET RUN)
+
+Baseline: audited `pathogenModel()` (`.claude/decisions/2026-08-27-pathogen-model-audit.md`)
+on the E1–E7 working set, anchored on the **E4 60 d mature filter**
+`analysis/probes/data/chain/chain_fld2x_lit_leg6.mat` (`Snapshot=`), pulse scenario,
+N = 500, `TPost = 3` d, `MaxDt = 5e-5`, shin scheme, Neumann cohesion BC.
+Host configuration: T = 19 °C, ζ₀ = 1, ζ₁ = 0.27, κ = 1e-6, **linear** detachment
+0.14·|v_f|/18 ×1, constant liquid transfer ×10, K_DOM 3e-4, K_HPO₄,PHO 1e-6,
+η_sand 1500 /m, δ 5 mm, dark floor 0, no respiration reaction.
+Influent (kg/m³) = 2× field + the Table B.1 marker in the PAT slot:
+`[3.0e-4, 1.0e-3, 0, 5.36e-3, 9.10e-3, 6.23e-3, 2.0e-5, 5.0e-6, 1.0e-3]`.
+Disturbance: influent PAT ×10 on t ∈ [t_snap + 0.1, t_snap + 0.3) d; measures over
+[t_snap + 0.1, t_snap + 3]. Perturbation ×2 / ×½, denominator 2 ln 2, except
+`beta_porosity` (constrained scheme, unchanged).
+
+Runner: `slurm/oat_pulse.sbatch` (array 0–28, one parameter per task; each task also runs
+the baseline so tasks are independent). Results to `analysis/results/oat/log_oat_pulse_<param>/`.
+
+**Every nominal below is the value the baseline model actually runs at.** That was not true
+of the 2026-08-18 table once the kinetics were audited: `logOatCampaign` sets the perturbed
+parameter to the *absolute* value 2·nominal or nominal/2, so a stale nominal both perturbs
+around the wrong point and silently changes the baseline. Nine nominals moved.
+
+| name | block | nominal (workingset) | was (campaign) | ×2 | ×½ | source |
+|---|---|---|---|---|---|---|
+| temperature | forcing | 19 °C | 15 °C | 38 | 9.5 | E1–E7 host temperature |
+| influent_PAT | forcing | ×1 | ×1 | ×2 | ×0.5 | challenge multiplier on 5.36e-3 (Manriquez B.1) |
+| dispersivity | transport | 0.012 m | = | 0.024 | 0.006 | Schijven2013 T1 |
+| transport_P | transport | 5.47 /d | = | 10.94 | 2.735 | Lund phase transfer |
+| attach_sand | transport | 547 /d | = | 1094 | 273.5 | Diehl2025/Lund b_sand |
+| sand_pathogen | transport | 0.06 | = | 0.12 | 0.03 | Schijven2013 T4 α geo-mean (baseline is 0; see quirks) |
+| **mu_HET** | kinetics | **2.0 /d** | 1.81e-2 | 4.0 | 1.0 | Reichert2001 k_gro,H,aer |
+| **mu_PHO** | kinetics | **2.0 /d** | 5.5 | 4.0 | 1.0 | Reichert2001 k_gro,ALG |
+| **d_HET** | kinetics | **0.40 /d** | 2.0 | 0.8 | 0.2 | Wolf2007 b_ina,H |
+| **d_PHO** *(new)* | kinetics | **0.276 /d** | — | 0.552 | 0.138 | Campos2006 T3 k_ra |
+| **hydrolysis** | kinetics | **3.0 /d** | 0.09 | 6.0 | 1.5 | Reichert2001 k_hyd / Wolf2007 k_h |
+| **theta_growth** | kinetics | **dev 0.0725** | 0.047 | 0.145 | 0.036 | Reichert2001 β_H 0.07 → θ 1.0725 |
+| **theta_death** | kinetics | **dev 0.08** | 0.066 | 0.16 | 0.04 | Campos2006 θ_kra = 1.08 |
+| **K_O2_HET** | kinetics | **2.0e-4** | 3.0e-3 | 4.0e-4 | 1.0e-4 | Reichert2001 K_O2,H = 0.2 g/m³ |
+| **K_DOM_HET** | kinetics | **3.0e-4** | 2.0e-4 | 6.0e-4 | 1.5e-4 | **UNCITED** oligotrophic value of the working set; decision pending (`2026-08-26-campos-route-no-respiration.md`) |
+| **K_HPO4_HET** | kinetics | **2.0e-5** | 1.4e-8 | 4.0e-5 | 1.0e-5 | Reichert2001 K_HPO4,H = 0.02 gP/m³ |
+| **K_O2_PAT** *(new)* | pathogen | **2.0e-4** | — | 4.0e-4 | 1.0e-4 | audited HET row; the manuscript gives no K^O₂_PAT |
+| **K_pred** *(new)* | pathogen | 2.0e-3 | — | 4.0e-3 | 1.0e-3 | `thesis_model`; `tab:eco-parameters` gives none |
+| marker_growth | pathogen | 0.2 /d | = | 0.4 | 0.1 | Manriquez `results.tex:140` |
+| inactivation | pathogen | 0.02 /d | = | 0.04 | 0.01 | Manriquez `results.tex:141` |
+| bacterivory | pathogen | 8.0 /d | = | 16.0 | 4.0 | Manriquez `results.tex:142` |
+| **zeta_0** | biofilm | **1.0** | 1e2 | 2.0 | 0.5 | E3 working set (`2026-08-25-zeta0-tradeoff.md`) |
+| kappa | biofilm | 1e-6 | = | 2e-6 | 5e-7 | interfacial width (sub-grid at this mesh) |
+| **zeta_1** | biofilm | **0.27** | 1e-2 | 0.54 | 0.135 | E1 working set |
+| detach_scale | biofilm | ×1 | = | ×2 | ×0.5 | scales the **linear** law here, not the campaign √ law |
+| light_att_water | light | 0.32 | = | 0.64 | 0.16 | Lund optical depth |
+| light_att_sand | light | 1500 | = | 3000 | 750 | Lund optical depth |
+| attenuation_P | light | 0.094 | = | 0.188 | 0.047 | Lund self-shading |
+| beta_porosity | biofilm | β = 0.99 | = | β = 0.98 | β = 0.95 | constrained scheme, denominator ln 2.5 (decision 2026-08-18) |
+
+Bold = moved from the 2026-08-18 table. *(new)* = added on 2026-08-27.
+
+### Known weaknesses of this design, stated rather than hidden
+
+1. **`K_DOM_HET` has no citation.** 3.0e-4 is the working-set value chosen empirically; the
+   Wolf2007 value it replaced (4.0e-3) is an ASM wastewater number. Perturbing an uncited
+   nominal produces an uncitable sensitivity.
+2. **`marker_growth` may score exactly zero.** With the audited min-Monod set, r7 carries a
+   K_HPO₄ term (`pathogen.tex:33`); this campaign runs at influent HPO₄ = 5e-6, so the term
+   is limiting but nonzero. At the *manuscript* influent (HPO₄ = 0) it would be identically
+   zero. That is why the anchor uses the field influent.
+3. **The anchor is the lit arm only.** A dark twin doubles the campaign; the E4 lit/dark
+   contrast is 4 % in the bed, so the sensitivity ranking is unlikely to move, but this is
+   an assumption, not a measurement.
+4. **One 3 d window.** Slow parameters (ζ₀, κ, β) act on the biofilm over weeks; a 3 d
+   removal curve cannot resolve them and they will rank low for that reason, not because
+   they do not matter.
+
 ## Base model — `pathogenModel()` (src/presets/pathogenModel.m)
 
 `modelLund` (physical units, ρ_P = 1117, ρ_L = 998) + Manriquez2026 Table B.4 markers:
