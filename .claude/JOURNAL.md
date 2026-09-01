@@ -1277,3 +1277,38 @@ model).
 
 **Next**: f_dry decision; diagnose the PAT export non-closure (`simulate.m:921-944`); find a
 measured effluent NH₄/HPO₄ to test the mineralisation; submit the OAT once both are settled.
+
+## 2026-09-01 — revision week day 1: closure resolved, OAT run, manuscript rewired
+
+Everything on `julia-port` committed (`ee0e4d3` safety WIP through `bac3f08` and
+successors) per Jaime's approved revision plan; only data stays untracked.
+
+- **PAT export non-closure RESOLVED — O(Δt) truncation, no defect.** The isolation
+  battery (`probeMassClosureIsolation.m`) excluded dispersion (both forms, also by
+  the conservation arguments), PAT transfer, and frame quadrature; the liquids —
+  never budgeted before — all showed the identical 8.33e-6 ratio, exonerating every
+  PAT-specific term; halving MaxDt halved the residual over a 4× range, identically
+  under explicit and implicit dispersion (to 4 digits). Decision:
+  `2026-09-01-pat-export-closure-resolved.md`. Pathogen figures unblocked; the P1
+  2.9-log ceiling is a documented resolution (+0.3 log per Δt halving).
+- **f_dry = 0.25 decided (side-project)** — Melo2005 citation chain; couples to β
+  (β = 0.99 + f_dry = 0.25 understates measured biofilm dry density 5–30×).
+  Decision: `2026-09-01-f-dry-convention.md`. Implementation after Friday.
+- **Working-set OAT run and processed**: cosmos 3562754, 29/29 clean, ~31 min/task.
+  `maskOatMeasures.m` masks measures to the resolution band (raw dispersivity 0.57
+  was 92 % front-edge noise → 0.049). Masked ranking: sand_pathogen 0.49 (the
+  b^att,PAT_f = 0 assumption is the model's most influential parameter!),
+  attach_sand 0.16 (was 0.62 on the young v2 host), T 0.041, β 0.039 (asym 4.6).
+  Tooling: `plotOatTornado.m`, `makeOatRankingTable.m` (rows file carries its own
+  trailing \hline — \input-in-tabular gotcha).
+- **Manuscript (AWR-SSF, pushed through `5b1f323`)**: R2.5/R2.6 fixes; sensitivity
+  section wired into main.tex with the real table + tornado on masked numbers;
+  30 \includegraphics swapped to `figures/recreation/rec_*` (gitignore un-ignore
+  added); the recreated seasons figure inverts the published ordering — caption
+  updated (orange), discussion sentences carry co-author TODOs.
+
+**Next**: R2.4 font-size restyle of the recreated Figs 10–17; decide the four
+non-recreated pathogen figures (LowInactivation ×3, pat-scraping); reconcile
+tab:general/eco-parameters with the working-set values the new figures actually
+ran at (prepare the diff for Jaime); Jaime's prose pass (R2.3 list, captions,
+discussion bullets in reports/revision-brief-2026-09-01.pdf); co-author email.
