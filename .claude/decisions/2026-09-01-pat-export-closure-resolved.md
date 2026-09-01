@@ -34,6 +34,13 @@ zero biology, N = 100, 3 d, PAT fed; logs `logs/massclosure-iso-*-2026-09-01.log
 6. **Conviction**: halving MaxDt halves the residual —
    O₂ 8.33e-6 → 4.17e-6 → 2.09e-6 and PAT 5.28e-6 → 2.51e-6 → 1.13e-6 for
    MaxDt 5e-5 → 2.5e-5 → 1.25e-5. Clean first order, converging to zero.
+7. **Holds for BOTH dispersion forms** (Jaime's follow-up): the
+   explicitDispersion variant at MaxDt 2.5e-5 reproduces the implicit run's
+   residuals to four digits (PAT 9.472e-9, O₂ 8.189e-7 — identical numbers).
+   Consistent with both dispersion operators being exactly conservative
+   (telescoping with zero boundary rows / vanishing ε-weighted column sums):
+   the O(Δt) error is generated entirely in the shared advection/splitting
+   path, so the conclusion is independent of the ImplicitDispersion option.
 
 R(t) timing fits: the error is committed while the breakthrough front (the
 solution's stiffest transient) crosses the column, then stays put.
