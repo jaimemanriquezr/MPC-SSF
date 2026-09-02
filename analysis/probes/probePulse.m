@@ -64,6 +64,9 @@ arguments
     opts.BacterivoryRate (1,1) double = NaN    % NaN = preset 8.0
     % --- solver ---
     opts.MaxDt (1,1) double = 5e-5
+    % PAT SandAttachmentFactor; NaN = preset (0, i.e. the marker cannot attach to
+    % bare sand). 0.06 is Schijven2013's T4 sticking efficiency (geometric mean).
+    opts.SandPathogen (1,1) double = NaN
     opts.NFrames (1,1) double = 145            % 3 d at 30 min
 end
 here = fileparts(mfilename("fullpath")); W = fileparts(fileparts(here));
@@ -87,7 +90,9 @@ assert(size(snap.Matrix, 1) == numel(f.GridPoints.Centers), "probePulse:gridMism
     size(snap.Matrix, 1), numel(f.GridPoints.Centers), opts.NCells);
 f.InflowVelocity = opts.FlowSurge*f.InflowVelocity;
 
-mp = pathogenModel(NormalizedLight=true);
+mpArgs = {"NormalizedLight", true};
+if ~isnan(opts.SandPathogen), mpArgs = [mpArgs, {"SandPathogen", opts.SandPathogen}]; end
+mp = pathogenModel(mpArgs{:});
 rx = mp.Reactions;
 rx([rx.Name] == "Phototroph growth").MinimumLightFactor = 0.0;   % as probeChain
 iH = find([rx.Name] == "Heterotroph growth"); H = rx(iH).HalfSaturationConstants;

@@ -296,6 +296,26 @@ fprintf("scrape: from %s (t = %g d), depth %.3f m, %g d of regrowth\n", src, t0,
 [f, m, common] = workingSetSetup(opts.NCells);
 z = f.GridPoints.Centers(:); dz = f.GridSize;
 st = scrapeState(st, opts.Depth, dz, z);
+if opts.Days == 0
+    % Scrape and stop: save the scraped state itself as a restart snapshot, so a
+    % filter can be challenged IMMEDIATELY after scraping (Schijven2013 D2) with
+    % no regrowth in between. No simulation is run.
+    if opts.SnapshotTag == ""
+        error("reproduceManriquez2026:noTag", "Days = 0 requires SnapshotTag");
+    end
+    snap = st; snap.Time = t0; snap.allZero = string.empty;
+    for fn = ["Matrix","EnclosedParticles","FlowingParticles","EnclosedLiquids","EnclosedWaterVolume"]
+        if all(snap.(fn)(:) == 0), snap.allZero(end+1) = fn; end
+    end
+    rec = struct("tEnd", t0, "depth", opts.Depth, "fromT", t0, "days", 0, ...
+        "nCells", opts.NCells, "flag", "SCRAPE_ONLY"); %#ok<NASGU>
+    chainDir = fullfile(here, "probes", "data", "chain");
+    if ~isfolder(chainDir), mkdir(chainDir); end
+    fnSnap = fullfile(chainDir, opts.SnapshotTag + ".mat");
+    save(fnSnap, "snap", "rec", "-v7.3");
+    fprintf("scrape %.0f cm, NO regrowth: t = %g d -> %s\n", opts.Depth*100, t0, fnSnap);
+    return
+end
 s = rehomeState(f, m, st, 0.0);
 tic; r = simulate(s, common{:}, SimulationTime=opts.Days, AdaptiveInitialDt=1e-8);
 wall = toc;
