@@ -21,7 +21,7 @@ function recreateFigsManriquez2026(what, opts)
 %   outflow2d   Outflow2D{O2,IC,NH4,HPO4,DOM}.pdf
 %   patpulse    March-11/PATPulse_{HighLow,FastSlow}.pdf
 %   filtration  March-11/FiltrationRate_HETPHO.pdf
-%   pat2d       March-11/PAT{Flowing,Matrix,Enclosed}Reference.pdf
+%   pat2d       March-11/PAT{Flowing,Matrix,Enclosed}{Reference,LowInactivation}.pdf
 %
 % Every figure whose input data is missing prints a "SKIP <key>: ..." line and
 % is left out; nothing here starts a simulation. Deviations are recorded in
@@ -500,6 +500,45 @@ for vol = ["Flowing" "Matrix" "Enclosed"]
     ylabel(ax, "Depth [m]", Interpreter="latex", FontSize=20);
     xlim(ax, [t(1) t(end)]); ylim(ax, [-1 1]);
     saveBoth(f, outDir, "rec_PAT" + vol + "Reference");
+end
+
+% Low-inactivation arm (InactivationRate = 2e-6, vs. NaN/nominal for p1x):
+% same three panels, sourced from pulse_fig_exp3_d37.mat.
+fn2 = pulseFile(pulseDir, "exp3");
+if fn2 == ""
+    fprintf("SKIP pat2d-lowinactivation: no pulse_fig_exp3*.mat\n"); return
+end
+w2 = whos("-file", fn2);
+if ~ismember("results", string({w2.name}))
+    fprintf("SKIP pat2d-lowinactivation: %s has no ""results"" object\n", fn2); return
+end
+D2 = load(fn2, "results", "rec");
+if ~isa(D2.results, "Results")
+    fprintf("SKIP pat2d-lowinactivation: ""results"" in %s did not load as a Results object\n", fn2); return
+end
+z2 = D2.results.SandFilter.GridPoints.Centers(:);
+t2 = D2.results.Frames.Time(:).';
+if isfield(D2.rec, "tSnapshot") && t2(1) < D2.rec.tSnapshot
+    t2 = t2 + D2.rec.tSnapshot;
+end
+for vol = ["Flowing" "Matrix" "Enclosed"]
+    C = D2.results.Frames.Concentrations{"PAT", vol}{:};
+    if isscalar(C) || isempty(C)
+        fprintf("SKIP pat2d-lowinactivation %s: empty concentration table entry\n", vol); continue
+    end
+    [T, Z] = meshgrid(t2, z2);
+    f = figure("Visible", "off", "Position", [0 0 900 560], Color="w");
+    ax = axes(f);
+    surf(ax, T, Z, max(C, realmin), LineStyle="none");
+    view(ax, 2); colormap(ax, "jet");
+    set(ax, ColorScale="log", YDir="reverse", TickLabelInterpreter="latex", FontSize=14);
+    cb = colorbar(ax); cb.Label.String = "Concentration [g/L]";
+    cb.Label.Interpreter = "latex"; cb.Label.FontSize = 16;
+    cb.TickLabelInterpreter = "latex";
+    xlabel(ax, "Time [days]", Interpreter="latex", FontSize=20);
+    ylabel(ax, "Depth [m]", Interpreter="latex", FontSize=20);
+    xlim(ax, [t2(1) t2(end)]); ylim(ax, [-1 1]);
+    saveBoth(f, outDir, "rec_PAT" + vol + "LowInactivation");
 end
 end
 
