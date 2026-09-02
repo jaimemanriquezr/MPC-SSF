@@ -1117,3 +1117,4 @@ Monod terms not limiting on this host, per the 2026-08-27 audit).
 |---|---|---|---|---|
 | 3563617 | `slurm/patscrape.sbatch` | fig:pat-scraping re-run — scrape leg3 (30 d) at 0/4/8/12 cm, 20 d regrowth, then constant feed + 10× pulse + 100× pulse via probePulse | 2026-09-02T10:21:16+02:00 | ~2.5 h/arm, 4 arms parallel (supersedes cancelled 3563613) |
 | 3564977 | `slurm/tenore_2x2.sbatch` | 2×2 attribution, lit, 30 d: {mu_HET 2.0, 4.8} × {nu_P 0.094, 52}, all four corners under today's code | 2026-09-02T16:47:00+02:00 | ~95 min/arm, 4 arms parallel |
+| 3565542 | `slurm/hpo4_probe.sbatch` | Phosphate probe, winter 3 °C, 60 d: influent HPO4 = 0 vs 5.0e-6, old presets pinned — tests whether the sub-surface biofilm bulge is phosphate-driven | 2026-09-02T18:51:27+02:00 | ~3.2 h/arm, 2 arms parallel |
