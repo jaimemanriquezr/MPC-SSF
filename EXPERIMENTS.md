@@ -1448,6 +1448,47 @@ the bound is configuration-specific and must be re-derived for the feed before a
 redrawn.
 
 
+## E16 — The new parameters ELIMINATE the winter sub-surface bulge (2026-09-03)
+
+Cosmos 3565918 arm 3 (`prod_win_p5`, winter 3 C, HPO4_in 5.0e-6, 90 d) exit 0:0 -- the first
+production chain grown under mu_HET = 4.8 and nu_P = 52.
+
+| winter, 90 d | areal | phi_b max | top 2 cm | HET % | argmax z |
+|---|---|---|---|---|---|
+| OLD presets (fld2x_winter) | 0.6767 | 0.3060 | 6.4 % | 63.1 % | **0.084 m** |
+| NEW presets (prod_win_p5) | 0.6827 | 0.4286 | 9.1 % | 63.4 % | **0.004 m** |
+
+Profile:
+
+| z [m] | OLD | NEW |
+|---|---|---|
+| 0.002 | 0.1604 | 0.2291 |
+| 0.010 | 0.1645 | **0.2380** (max) |
+| 0.040 | 0.1678 | 0.1996 |
+| 0.080 | **0.1824** (max) | 0.1704 |
+| 0.150 | 0.1421 | 0.1342 |
+
+**The sub-surface bulge is gone, not merely overtaken**: there is no local minimum anywhere in
+0.005-0.30 m under the new presets. The profile peaks at 1 cm and declines monotonically.
+
+Total areal biomass and community composition are unchanged (+0.9 %, +0.3 pp). Biofilm in the
+top 10 cm rises about 43 %, so the biomass is REDISTRIBUTED UPWARD rather than increased --
+consistent with E12, where the mu_HET effect showed up in the peak (+20-22 %) and barely in the
+integral.
+
+**The mechanism established in E12/E13 explains its disappearance.** The bulge arose because
+near-surface heterotrophs were phosphate-limited while phototrophs consumed the phosphate, so
+the net specific growth rate peaked at the HPO4/DOM crossover around 8 cm. At mu_HET = 4.8
+heterotrophs grow 2.4x faster and win at the surface despite that competition, so the crossover
+no longer produces a maximum.
+
+**Consequence.** The winter anomaly Jaime spotted, and the phosphate diagnosis confirmed by the
+controlled probe 3565542, are properties of the OLD mu_HET = 2.0. Both were correct for the
+parameters in force at the time; neither describes the corrected model. The winter profile
+figure changes shape under the new parameters, and any discussion text written around the
+sub-surface maximum must be revisited.
+
+
 ## Staged (not yet accepted)
 
 | job | script | what | submitted | ETA |
