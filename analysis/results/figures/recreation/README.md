@@ -116,3 +116,50 @@ PHO death 7.73 / 7.20, PHO growth 0.794 / 0. So light adds 3-7 % to every
 heterotrophic term and is the sole source of the 0.79 g/(m^2 d) of phototroph
 production; the filter's activity is overwhelmingly heterotrophic even in the
 lit arm.
+
+## `rec_supernatant_height.{pdf,png}` — biofilm height in the supernatant
+
+Not a recreation of a published panel: there is no published figure of this. Added
+2026-09-02 to put a number on the `results.tex` caption claim that winter and summer
+have "comparable biofilm heights above" the bed.
+
+**Measure.** `analysis/plotSupernatantHeightChains.m`, backed by
+`src/@Results/getSupernatantHeight.m`:
+
+    h(t) = ( \int_{z<0} eps(z) phi_b(z,t) dz ) / phi_ref,      phi_ref = 0.3
+
+the thickness the biofilm standing above the sand surface (z = 0) would have if
+compacted to volume fraction `phi_ref`. `phi_ref = 0.3` is the biofilm volume
+fraction at the sand surface in the working set (0.271 dark, 0.271 cov01, 0.306
+winter, 0.324 summer at their final frames). `h` is linear in `1/phi_ref`, so the
+ordering of the scenarios does not depend on that choice.
+
+**Why not a threshold height.** The obvious measure — the most negative z with
+phi_b above a threshold — cannot be used at N = 500. The supernatant biofilm
+occupies one or two cells (dz = 1.998 mm), so the threshold height can only return
+0, 2 or 4 mm; at thr = 1e-3 all four scenarios read 4 mm, and winter drops from
+4 mm to 2 mm on the same frame when the threshold moves to 1e-2.
+
+**Caveat.** h is of order 0.5-0.9 mm, i.e. h/dz = 0.27-0.43. The supernatant
+biofilm is *not resolved* at N = 500 and every number here is a sub-cell quantity.
+The existing chain diagnostics `rec.supInt` / `rec.supFrac` are identically **zero**
+on these chains, because they take the supernatant to be z < -SandRoughness =
+z < -5 mm and all of the biofilm above the sand sits inside the roughness band.
+
+**Numbers** (final frame; summer/dark run to 104 d, winter to 90 d, cov01 to 30 d):
+
+| scenario | h(30 d) | h(90 d) | h(final) | bed integral at 90 d |
+|---|---|---|---|---|
+| summer, `fld2x_lit`    | 0.778 mm | 0.861 mm | 0.861 mm | 0.00772 |
+| winter, `fld2x_winter` | 0.636 mm | 0.679 mm | 0.679 mm | 0.02411 |
+| covered 1 %, `fld2x_cov01` | 0.538 mm | — | 0.538 mm | — |
+| covered dark, `fld2x_dark`  | 0.534 mm | 0.541 mm | 0.541 mm | — |
+
+`cov01` and `dark` overlie each other to within 1 % and are hard to tell apart on
+the figure; 1 % light is indistinguishable from none by this measure.
+
+**Reading.** Summer is the *taller* arm: 0.861 vs 0.679 mm at 90 d, +27 %. Winter
+carries 3.12x the bed biomass (0.02411 vs 0.00772). Winter leads summer in height
+only over the first ~15 d. So the caption's "comparable" is fair on magnitude
+(27 % apart, against 212 % apart in the bed) but the *sign reverses* between bed
+and supernatant, and the taller arm is summer.
