@@ -23,6 +23,13 @@ function recreateFigsManriquez2026(what, opts)
 %   filtration  March-11/FiltrationRate_HETPHO.pdf
 %   pat2d       March-11/PAT{Flowing,Matrix,Enclosed}{Reference,LowInactivation}.pdf
 %
+% Two further keys have NO published counterpart -- they are manuscript
+% CANDIDATES (see .claude/CANDIDATE-FIGURES.md), drawn from the same chains:
+%   composition rec_composition_depth.pdf   community structure vs depth, four
+%               scenarios at the common horizon, paired with phi_b(z)
+%   tenore      rec_composition_time.pdf    Tenore2021-style: depth-integrated
+%               biomass fractions f_i(t) over the bed, paired with areal biomass
+%
 % Every figure whose input data is missing prints a "SKIP <key>: ..." line and
 % is left out; nothing here starts a simulation. Deviations are recorded in
 % analysis/results/figures/recreation/README.md.
@@ -43,7 +50,7 @@ outDir  = fullfile(here, "results", "figures", "recreation");
 if ~isfolder(outDir), mkdir(outDir); end
 
 keys = ["light" "seasons" "roofed" "month" "scrape" "outflow1d" "outflow2d" ...
-        "patpulse" "filtration" "pat2d"];
+        "patpulse" "filtration" "pat2d" "composition" "tenore"];
 if what == "all"
     todo = keys;
 elseif ismember(what, keys)
@@ -64,6 +71,8 @@ for k = todo
         case "patpulse",   figPatPulse(pulseDir, outDir);
         case "filtration", figFiltration(pulseDir, outDir);
         case "pat2d",      figPat2D(pulseDir, outDir);
+        case "composition",figComposition(dataDir, outDir, opts);
+        case "tenore",     figTenore(dataDir, outDir, opts);
     end
 end
 fprintf("recreation figures in %s\n", outDir);
@@ -548,6 +557,206 @@ for vol = ["Flowing" "Matrix" "Enclosed"]
     xlim(ax, [t2(1) t2(end)]); ylim(ax, [-1 1]);
     saveBoth(f, outDir, "rec_PAT" + vol + "LowInactivation");
 end
+end
+
+% ======================================================================== %
+% CANDIDATE (no published counterpart) -- community structure against depth
+% rec_composition_depth.pdf
+% ======================================================================== %
+function figComposition(dataDir, outDir, opts)
+[sc, T] = scenarioSet(dataDir, opts);
+if isempty(sc), fprintf("SKIP composition: no fld2x chains on disk\n"); return, end
+if isnan(T),    fprintf("SKIP composition: no common horizon\n"); return, end
+
+n = numel(sc);
+f = figure("Visible", "off", "Position", [0 0 420*n 760], Color="w");
+tl = tiledlayout(f, 2, n, TileSpacing="compact", Padding="compact");
+for i = 1:n
+    fn = legForTime(dataDir, sc(i).tag, T);
+    w  = whos("-file", fn);
+    if ~ismember("results", string({w.name}))
+        fprintf("SKIP composition: %s has no ""results"" object\n", fn); close(f); return
+    end
+    D = load(fn, "results");
+    ax = nexttile(tl, i);
+    set(ax, TickLabelInterpreter="latex", LineWidth=1.0);
+    plotBiofilmComposition(D.results, T, AxisHandle=ax, DepthLimits=[0 1], ...
+        Phase="Biofilm", FontSize=15, Grid=false);
+    title(ax, sc(i).name, Interpreter="latex", FontSize=17);
+    xlabel(ax, "Depth $z$ [m]", Interpreter="latex", FontSize=17);
+    if i == 1
+        ylabel(ax, "Relative volume fraction of biofilm [--]", Interpreter="latex", FontSize=17);
+    else
+        ylabel(ax, ""); yticklabels(ax, []);
+    end
+    lg = legend(ax);
+    if i < n
+        set(lg, Visible="off");
+    else
+        set(lg, Interpreter="latex", FontSize=14, Box="on", EdgeColor="k", ...
+            Orientation="horizontal");
+        lg.Layout.Tile = "south";
+    end
+end
+% Bottom row: the ABSOLUTE measure. Relative fractions alone are misleading --
+% phi_b peaks near 3e-3 here, so a composition plot describes a nearly empty
+% filter. Never show the top row without this one.
+phiMax = 0;
+for i = 1:n
+    A = loadChain(dataDir, sc(i).tag, MaxT=T);
+    [phi, tGot] = profileAt(A, T);
+    sc(i).phi = phi; sc(i).z = A.z; sc(i).tGot = tGot;
+    phiMax = max(phiMax, max(phi(A.z >= 0)));
+end
+for i = 1:n
+    ax = nexttile(tl, n + i);
+    set(ax, NextPlot="add", TickLabelInterpreter="latex", FontSize=15, LineWidth=1.0);
+    box(ax, "on"); grid(ax, "on");
+    plot(ax, sc(i).z, max(sc(i).phi, 1e-6), "k-", LineWidth=1.4);
+    % phi_b spans four decades between the schmutzdecke and the bottom of the
+    % bed; on a linear axis everything but the z = 0 spike collapses onto zero.
+    set(ax, YScale="log");
+    xlim(ax, [0 1]); ylim(ax, [1e-5 2*phiMax]);
+    xlabel(ax, "Depth $z$ [m]", Interpreter="latex", FontSize=17);
+    if i == 1
+        ylabel(ax, "Biofilm volume fraction $\phi_{\rm b}$ [--]", Interpreter="latex", FontSize=17);
+    else
+        yticklabels(ax, []);
+    end
+    fprintf("  composition %-14s t=%.2f d  max phi_b(bed)=%.3e\n", ...
+        sc(i).tag, sc(i).tGot, max(sc(i).phi(sc(i).z >= 0)));
+end
+title(tl, sprintf("Biofilm community structure at $t = %g$ d (chains \\texttt{fld2x\\_*})", T), ...
+    Interpreter="latex", FontSize=19);
+saveBoth(f, outDir, "rec_composition_depth");
+end
+
+% ======================================================================== %
+% CANDIDATE (no published counterpart) -- Tenore2021-style f_i(t)
+% rec_composition_time.pdf
+% ======================================================================== %
+function figTenore(dataDir, outDir, opts)
+% Tenore et al. (2021) present phototroph-heterotroph competition as biomass
+% FRACTIONS f_i evolving in time (their Figs. 2, 3, 6). The analogue here is the
+% bed-integrated composition: what fraction of the sessile biomass in 0 <= z <= 1 m
+% is HET / PHO / POM / PAT at each time, per scenario, with the absolute areal
+% biomass drawn on top so the reader sees how much biomass the fractions describe.
+[sc, T] = scenarioSet(dataDir, opts);
+if isempty(sc), fprintf("SKIP tenore: no fld2x chains on disk\n"); return, end
+if isnan(T),    fprintf("SKIP tenore: no common horizon\n"); return, end
+
+n = numel(sc);
+for i = 1:n
+    [sc(i).t, sc(i).areal, sc(i).names] = arealSeries(dataDir, sc(i).tag, T);
+end
+mMax = max(arrayfun(@(s) max(sum(s.areal, 2)), sc));
+
+f  = figure("Visible", "off", "Position", [0 0 470*ceil(n/2), 760], Color="w");
+tl = tiledlayout(f, 2, ceil(n/2), TileSpacing="compact", Padding="compact");
+for i = 1:n
+    ax = nexttile(tl, i);
+    set(ax, NextPlot="add", TickLabelInterpreter="latex", FontSize=15, LineWidth=1.0);
+    box(ax, "on");
+    tot = sum(sc(i).areal, 2);
+    frac = cumsum(sc(i).areal, 2) ./ max(tot, realmin);
+    kp = numel(sc(i).names);
+    % Cumulative bands drawn largest-first, exactly as plotBiofilmComposition
+    % does, so the two candidate figures share colours and legend order.
+    for q = 0:kp-1
+        area(ax, sc(i).t, frac(:, end-q), DisplayName=sc(i).names(end-q));
+    end
+    xlim(ax, [0 T]); ylim(ax, [0 1]);
+    yyaxis(ax, "right");
+    plot(ax, sc(i).t, tot, "k-", LineWidth=2.0, DisplayName="areal biomass");
+    ylim(ax, [0 1.05*mMax]);
+    set(ax, YColor="k");
+    if mod(i, ceil(n/2)) == 0
+        ylabel(ax, "Areal biomass [kg\,m$^{-2}$] (wet)", Interpreter="latex", FontSize=17);
+    else
+        yticklabels(ax, []);
+    end
+    yyaxis(ax, "left"); set(ax, YColor="k");
+    if mod(i, ceil(n/2)) == 1
+        ylabel(ax, "Fraction of sessile biomass [--]", Interpreter="latex", FontSize=17);
+    else
+        yticklabels(ax, []);
+    end
+    xlabel(ax, "Time [d]", Interpreter="latex", FontSize=17);
+    title(ax, sc(i).name, Interpreter="latex", FontSize=17);
+    if i == n
+        % The bands fill the axes, so an in-axes legend always covers data --
+        % park it in the layout's own tile instead.
+        lg = legend(ax, "show");
+        set(lg, Interpreter="latex", FontSize=14, Box="on", EdgeColor="k", ...
+            Orientation="horizontal");
+        lg.Layout.Tile = "south";
+    end
+    fprintf("  tenore %-14s t=%.1f d  areal=%.4f kg/m^2  f=[%s]\n", sc(i).tag, ...
+        sc(i).t(end), tot(end), ...
+        strjoin(compose("%s %.3f", sc(i).names(:), (sc(i).areal(end, :)./tot(end)).'), ", "));
+end
+title(tl, "Bed-integrated biofilm composition over time (chains \texttt{fld2x\_*})", ...
+    Interpreter="latex", FontSize=19);
+saveBoth(f, outDir, "rec_composition_time");
+end
+
+% ======================================================================== %
+% candidate-figure helpers
+% ======================================================================== %
+function [sc, T] = scenarioSet(dataDir, opts)
+% The four fld2x arms, in the order the manuscript discusses them, restricted to
+% the ones actually on disk, plus the LATEST horizon that ALL of them reach.
+cand = struct( ...
+    "tag",  {opts.LitTag, opts.WinterTag, opts.CovTag, opts.DarkTag}, ...
+    "name", {"Summer (19$^\circ$C, uncovered)", "Winter (3$^\circ$C)", ...
+             "Covered (1\% light)", "Dark (0\% light)"});
+sc = cand([]); T = NaN; ends = [];
+for c = cand
+    g = chainLegs(dataDir, c.tag);
+    if isempty(g)
+        fprintf("PARTIAL: no chain_%s_leg*.mat -- arm omitted\n", c.tag); continue
+    end
+    D = load(fullfile(g(end).folder, g(end).name), "rec");
+    sc(end+1) = c; %#ok<AGROW>
+    ends(end+1) = D.rec.ts(end); %#ok<AGROW>
+end
+if ~isempty(ends), T = min(ends); end
+end
+
+function fn = legForTime(dataDir, tag, T)
+% The leg whose record contains time T (the last one if T is past the chain).
+g = chainLegs(dataDir, tag);
+fn = string(fullfile(g(end).folder, g(end).name));
+for k = 1:numel(g)
+    p = fullfile(g(k).folder, g(k).name);
+    D = load(p, "rec");
+    if D.rec.ts(1) <= T && T <= D.rec.ts(end), fn = string(p); return, end
+end
+end
+
+function [t, areal, names] = arealSeries(dataDir, tag, T)
+% Bed-integrated (z >= 0) sessile areal biomass per particulate, kg/m^2 WET,
+% stitched across legs. Sessile = Matrix + Enclosed; Flowing is excluded.
+% Same leg bookkeeping as loadChain -- do not diverge.
+g = chainLegs(dataDir, tag);
+t = []; areal = []; names = strings(0); prevEnd = -inf;
+for k = 1:numel(g)
+    D = load(fullfile(g(k).folder, g(k).name), "results_py");
+    py = D.results_py;
+    if isempty(names), names = string(strsplit(py.particleNames, '|')); end
+    tk = py.time(:).';
+    if k > 1 && abs(tk(1) - 2*prevEnd) < abs(tk(1) - prevEnd), tk = tk - prevEnd; end
+    keep = 1:numel(tk); if k > 1, keep = 2:numel(tk); end
+    bed = py.z(:) >= 0;
+    w   = py.porosity(:) .* bed * py.dz;
+    m   = squeeze(sum(w .* (py.particles(:, :, :, 1) + py.particles(:, :, :, 2)), 1));
+    t     = [t, tk(keep)];               %#ok<AGROW>
+    areal = [areal; m(keep, :)];         %#ok<AGROW>
+    prevEnd = tk(end);
+    if tk(end) >= T, break, end
+end
+keepT = t <= T + eps(T);
+t = t(keepT).'; areal = areal(keepT, :);
 end
 
 % ======================================================================== %
