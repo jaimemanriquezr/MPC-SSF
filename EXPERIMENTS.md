@@ -1261,6 +1261,37 @@ bacterivory rates are Manriquez Table B.4, not fitted to his organisms. This is 
 about the ATTACHMENT STRUCTURE, not a validation or refutation of the pathogen submodel.
 
 
+## Finding (2026-09-02): the model is a net mineraliser, contradicting the literature
+
+Measured influent vs effluent (bottom-cell flowing concentration) on the existing chains:
+
+| species | influent | effluent, summer 30 d | change | effluent, winter 30 d | change |
+|---|---|---|---|---|---|
+| O2 | 9.10e-3 | 6.13e-3 | -33 % | 6.94e-3 | -24 % |
+| IC | 6.23e-3 | 7.25e-3 | +16 % | 6.97e-3 | +12 % |
+| **NH4** | 2.00e-5 | 1.68e-4 | **+739 %** | 1.08e-4 | **+440 %** |
+| **HPO4** | 5.00e-6 | 3.25e-5 | **+549 %** | 1.81e-5 | **+263 %** |
+| DOM | 1.00e-3 | 1.14e-4 | **-89 %** | 6.89e-5 | **-93 %** |
+
+Influent particulate biomass (HET 3.0e-4 + PHO 1.0e-3, together larger than the DOM at
+1.0e-3) attaches, dies and mineralises, so the filter EXPORTS nitrogen and phosphorus at
+several times the influent concentration and strips DOM almost completely.
+
+**Jaime's reading of the literature is that inorganic nutrients change little between
+influent and effluent across an SSF.** That is consistent with what is in `documents/`:
+Demir2017 cites TOC removals of 9-17 % in comparable studies, and SSF is operated to remove
+particles and microorganisms rather than to transform nutrient chemistry. A 6.5x increase in
+phosphate and a 8.4x increase in ammonium is not a small variation.
+
+Two consequences. The column is a phosphate SOURCE, so setting influent HPO4 to zero does
+not starve it -- recycling supplies it, which is why the E12 zero arm still carried 2.0e-6
+enclosed phosphate. And DOM at -89 % is a near-total strip that also looks strong against the
+cited removals.
+
+NOT YET INVESTIGATED: whether the mineralisation is too fast (death rates), the influent
+biomass too high (HET/PHO influent), or the literature comparison unfair (our marker-free
+liquids are not the same measurement as a TOC assay).
+
 ## Staged (not yet accepted)
 
 | job | script | what | submitted | ETA |
@@ -1272,3 +1303,4 @@ about the ATTACHMENT STRUCTURE, not a validation or refutation of the pathogen s
 | 3565891 | `slurm/pulse_d60.sbatch` | Figure 11 (fig:pulse-outflow) extended t = 30→60 d, four panel arms, 30-min sampling — covers the 40, 50 and 60 d horizons from one run per arm | 2026-09-02T21:20:24+02:00 | ~96 min/arm, 4 arms parallel |
 | 3565911 | `slurm/sandbio_chain.sbatch` | Stage 1: 20 d chains at biomass sand factor {0.1, 0.3, 1.0} — does a lower factor concentrate biofilm at the surface? | 2026-09-02T21:49:54+02:00 | ~65 min/arm, 3 arms |
 | 3565912 | `slurm/sandbio_scrape.sbatch` | Stage 2 (afterok:3565911): intact vs scraped challenge on each, ΔL against Schijven's 0.6–1.6 log | 2026-09-02T21:49:54+02:00 | ~30 min/arm, 6 arms |
+| 3565918 | `slurm/prod_newparams.sbatch` | PRODUCTION: 90 d chains under mu_HET 4.8 / nu_P 52, summer+winter × HPO4_in {0, 5.0e-6} — first chains grown with the new presets | 2026-09-02T22:08:08+02:00 | ~4.8 h summer, ~2 h winter, 4 arms |
