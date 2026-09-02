@@ -1113,7 +1113,8 @@ Monod terms not limiting on this host, per the 2026-08-27 audit).
 
 ## E12 — New-parameter evaluation: mu_HET 4.8 and HPO4 influent 0 — PARTIAL (2026-09-02)
 
-**Status: partial, both runs still in flight at the time of writing.** Reported at the
+**Status: the mu_HET 2x2 (3564977) is COMPLETE, all four arms exit 0:0 at the 30 d
+endpoint. The HPO4 probe (3565542) is still in flight; its rows below are leg 1 only.** Reported at the
 horizons that exist, not at the horizons wanted.
 
 ### mu_HET 2.0 -> 4.8 (cosmos 3564977, 2x2 with nu_P; legs 1-2 of 3)
@@ -1122,9 +1123,13 @@ horizons that exist, not at the horizons wanted.
 |---|---|---|---|
 | 10 d | +5.2 % | +5.1 % | none (0.1 pp) |
 | 20 d | +2.2 % | +2.0 % | none (0.25 pp) |
+| 30 d (endpoint) | +1.8 % | +1.4 % | none (0.39 pp) |
 
-**The effect DECAYS with time.** A 2.4x increase in the heterotroph maximum growth rate
-buys +5.2 % of biomass at 10 d and only +2.2 % at 20 d. Heterotroph growth is not
+**The effect DECAYS with time, monotonically, to the 30 d endpoint.** A 2.4x increase in
+the heterotroph maximum growth rate buys +5.2 % of biomass at 10 d, +2.2 % at 20 d and
++1.8 % at 30 d. By 30 d the four arms are indistinguishable in community structure
+(HET 65.3-65.6 %, PHO 33.3-33.6 %) -- the parameters move how much biomass there is,
+slightly, and not what it is made of. Heterotroph growth is not
 kinetics-limited: mu_HET sets how fast the filter approaches a substrate-limited carrying
 capacity, not the capacity. Structure at 20 d: HET areal +2.9 %, PHO +1.0 %, peak particulate
 volume fraction +20 % — the extra growth concentrates near the surface rather than spreading down.
