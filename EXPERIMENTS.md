@@ -1343,7 +1343,48 @@ earlier comparison against the old-preset reference was sound. The presets show 
 phi_b max, 0.330 vs 0.290 (+14 %), consistent with the +22 % peak effect E12 measured for
 mu_HET.
 
-Stage 2 (3565912) measures whether this depth redistribution changes the scraping loss.
+### Stage 2: the scraping loss, and a structural limit
+
+3565912, 6/6 exit 0:0. Marker held at s = 0 throughout.
+
+| s_bio | top 2 cm | L intact | L scraped | dL | dL / top-fraction |
+|---|---|---|---|---|---|
+| 0.1 | 5.5 % | 0.0836 | 0.0776 | 0.0059 | 0.108 |
+| 0.3 | 9.3 % | 0.1151 | 0.1037 | 0.0113 | 0.122 |
+| 1.0 | 19.0 % | 0.1151 | 0.0951 | **0.0200** | 0.106 |
+
+**dL is proportional to the fraction of removal activity in the top 2 cm**, constant to within
+15 % across a 3.5x range: dL = 0.115 x (top-2 cm fraction). The value at s = 1.0 was predicted
+as ~0.022 before the arm finished and came in at 0.0200.
+
+Even at the most surface-concentrated setting the loss is 0.02 log, against Schijven's 0.6-1.6.
+
+### THE STRUCTURAL RESULT (E13 + E14 together)
+
+The model faces a trade-off it cannot escape within this attachment formulation:
+
+- **Large removal requires marker-sand attachment.** At s_pat = 1 (E13) removal is 6.5 log,
+  but dL was **-0.008**: scraping removes BIOFILM, not sand, so the removal capacity is
+  untouched.
+- **Scrape sensitivity requires biofilm-mediated removal.** At s_pat = 0 every path runs
+  through eps*phi_b so scraping bites, but total removal is only **0.11 log**.
+
+**Schijven2013 had both**: 0.94-4.5 log removal of E. coli WR1 AND a 1.6 log loss on scraping.
+A large removal, a large share of which a 2 cm scrape destroys. This model can produce either
+but not both.
+
+The reason is quantitative. Biofilm-mediated attachment is capped by the geometric weight
+eps*phi_b, and phi_b is at most 0.33 at the surface and ~0.15 through the bed. With the base
+rate of 547 /d that is an effective ~33 /d over a 3.3 h residence -- modest, not multi-log.
+
+**What is missing.** Most likely a straining term: physical capture by pore constriction in the
+compacted Schmutzdecke, which scales with accumulated deposit rather than with phi_b, and which
+scraping removes wholesale. This model has no straining at all. A larger biofilm attachment
+rate constant would also help -- the table's b^att,PAT_M = 1.32e3 is 2.4x the code's 547 -- but
+2.4x does not close a 30x gap.
+
+This is a publishable negative: a continuum attachment model of this form cannot reproduce a
+Schmutzdecke scraping effect of the measured size without an explicit straining mechanism.
 
 
 ## Staged (not yet accepted)
