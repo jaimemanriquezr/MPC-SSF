@@ -1309,6 +1309,43 @@ about effluent chemistry.
 Manuscript consequence: `fig:1d-outflow-liquids` and `fig:2d-plots` both include NH4 and HPO4
 panels and need a caveat or those species dropped.
 
+## E14 — Biomass sand factor: the hypothesis is FALSIFIED, and backwards (2026-09-02)
+
+Cosmos 3565911 (chains, 3/3 exit 0:0) + 3565912 (challenge, pending at time of writing).
+20 d chains at SandBiomass 0.1 / 0.3 / 1.0, new presets, marker held at s = 0.
+
+| s_bio | areal kg/m^2 | phi_b max | top 2 cm | 2-25 cm | >25 cm |
+|---|---|---|---|---|---|
+| 0.1 | 0.1399 | 0.0769 | 5.5 % | 35.7 % | **58.6 %** |
+| 0.3 | 0.1962 | 0.1717 | 9.3 % | 49.2 % | 40.8 % |
+| 1.0 | 0.2053 | 0.3300 | **19.0 %** | 68.8 % | 9.9 % |
+| *fld2x_lit, s = 1, OLD presets* | 0.2023 | 0.2898 | 18.8 % | 69.6 % | 10.0 % |
+
+**Lowering the biomass sand factor spreads biofilm DEEPER, not shallower** -- the opposite of
+the hypothesis. Raising s concentrates it: top 2 cm goes 5.5 -> 9.3 -> 19.0 %, the deep bed
+58.6 -> 40.8 -> 9.9 %, and the surface peak more than quadruples.
+
+**Why the hypothesis was wrong.** It assumed that biomass unable to stick to bare sand would
+accrete on existing biofilm. But at t = 0 there IS no biofilm, so cells with a low sand factor
+have nothing to attach to and travel deep before being caught. **Bare sand is the seed surface
+that creates the Schmutzdecke.** Reducing its stickiness delays and deepens colonisation.
+
+**This reverses the 2026-09-02 recommendation that s <= 1 is the defensible choice.** That
+argument held that s = 100 -- what `tab:rhs-parameters` implies -- would mean a fresh sand
+filter outperforms a ripened one. It conflated two things: strong sand capture at the surface
+is precisely HOW a Schmutzdecke forms, so it is ripening, not its opposite. Biofilm still adds
+attachment area through the eps*phi_b term and predation still requires biofilm. The table's
+sand/biofilm ratio of 100 may encode the right physics; s > 1 is the direction worth testing.
+
+**Preset confound resolved.** sb10 (s = 1, new presets) against fld2x_lit (s = 1, old presets)
+differ by 1.5 % in areal biomass and 0.2 percentage points in depth distribution, so the
+earlier comparison against the old-preset reference was sound. The presets show only in
+phi_b max, 0.330 vs 0.290 (+14 %), consistent with the +22 % peak effect E12 measured for
+mu_HET.
+
+Stage 2 (3565912) measures whether this depth redistribution changes the scraping loss.
+
+
 ## Staged (not yet accepted)
 
 | job | script | what | submitted | ETA |
