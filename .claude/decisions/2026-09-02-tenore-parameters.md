@@ -83,3 +83,46 @@ Both preset changes invalidate every existing artefact: the E1-E9 chain snapshot
 OAT campaign E11 (cosmos 3562754 / 3563342 / 3563343), all `rec_*` recreation figures,
 and cosmos 3563617 (pat-scraping), which completed today on the old presets. Re-anchoring
 is a separate decision and nothing has been re-run.
+
+---
+
+## AMENDMENT 2026-09-02, after cosmos 3564977 arms 0 and 2
+
+**The "self-shading was switched off" reasoning above is wrong and is retracted.** It was
+argued from eta_P integrated over the whole 1 m column without checking eta_sand. Measured
+decomposition at the final frame of `chain_t22_m20n52_leg3`:
+
+| z | eta_water | eta_sand | eta_P (0.094) | eta_P (52) |
+|---|---|---|---|---|
+| 0 m | 0.32 | **3.24** | 0.001 | 0.61 |
+| 0.01 m | 0.32 | **12.2** | 0.003 | 1.48 |
+| 0.05 m | 0.34 | **48.2** | 0.008 | 4.24 |
+
+`nu_sand` = 1500 /m dominates by one to two orders of magnitude at every depth. Light is
+already at 2.8% of incident at the top of the bed and 3.5e-6 at 1 cm FROM SAND ALONE, so
+the biofilm term cannot matter wherever there is sand.
+
+Measured effect of the change, arm 2 (nu 52) against arm 0 (nu 0.094), both at mu_HET 2.0
+under today's code, 30 d lit:
+
+| | areal kg/m^2 | phi_b max | HET% | PHO% | PHO @ 1 m |
+|---|---|---|---|---|---|
+| arm 0, nu 0.094 | 0.2151 | 0.00311 | 65.3 | 33.5 | 10.3 |
+| arm 2, nu 52 | 0.2136 | 0.00301 | 65.4 | 33.4 | 10.2 |
+
+**0.7% on areal biomass, 0.1 percentage point on composition.** nu_P = 52 is defensible on
+provenance grounds -- Tenore's context is biofilm, Gallegos2000's is suspended matter in
+water -- but it is not consequential, and the manuscript should not claim it is.
+
+Two corrections that follow:
+
+1. `attenuation_P` ranking near the bottom of the OAT is CORRECT and well founded, not an
+   artefact of a disabled mechanism. The earlier claim in this file that the ranking needed
+   reframing is withdrawn.
+2. The `ee0e4d3` confound did not materialise. Arm 0 (mu 2.0, nu 0.094, TODAY's code)
+   reproduces `chain_fld2x_lit_leg3` (Aug 26) to 4-5 significant figures on every measure
+   above, so that 523-line `simulate.m` rewrite was behaviour-preserving for this
+   configuration and the old chain is a valid baseline after all.
+
+The mu_HET arms (1 and 3) were still running when this was written; the mu_HET effect is
+not yet measured.
