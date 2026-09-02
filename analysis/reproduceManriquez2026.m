@@ -30,6 +30,11 @@ arguments
     opts.Days  (1,1) double = 10       % post-scrape regrowth
     opts.FromLeg (1,1) double = 3      % leg whose end state is scraped (leg 3 = 30 d)
     opts.NCells (1,1) double = 500
+    % Non-empty writes the end state of the regrowth as a probeChain-format
+    % restart snapshot (snap + rec) into probes/data/chain/<SnapshotTag>.mat, so
+    % probePulse can be run on a scraped filter. Empty = the 2026-08-27
+    % behaviour, scrape_GP*.mat only.
+    opts.SnapshotTag (1,1) string = ""
 end
 here = fileparts(mfilename("fullpath"));
 addpath(genpath(fullfile(fileparts(here), "src")));
@@ -295,6 +300,24 @@ s = rehomeState(f, m, st, 0.0);
 tic; r = simulate(s, common{:}, SimulationTime=opts.Days, AdaptiveInitialDt=1e-8);
 wall = toc;
 checkRunFlag(r, sprintf("scrape %.0f cm", opts.Depth*100));
+
+if opts.SnapshotTag ~= ""
+    % Restart snapshot in probeChain's format so probePulse can feed marker to
+    % a scraped filter (fig:pat-scraping). The clock was reset at the scrape, so
+    % snap.Time = opts.Days and the pulse window is relative to that.
+    snap = stateFromFrame(r, numel(r.Frames.Time)); %#ok<NASGU>
+    if ~isempty(snap.allZero)
+        error("reproduceManriquez2026:zeroedField", ...
+            "snapshot zeroed: %s", strjoin(snap.allZero, ", "));
+    end
+    rec = struct("tEnd", snap.Time, "depth", opts.Depth, "fromT", t0, ...
+        "days", opts.Days, "nCells", opts.NCells, "flag", string(r.Flag)); %#ok<NASGU>
+    chainDir = fullfile(here, "probes", "data", "chain");
+    if ~isfolder(chainDir), mkdir(chainDir); end
+    fnSnap = fullfile(chainDir, opts.SnapshotTag + ".mat");
+    save(fnSnap, "snap", "rec", "-v7.3");
+    fprintf("scrape %.0f cm: snapshot t = %g d -> %s\n", opts.Depth*100, snap.Time, fnSnap);
+end
 
 C = r.Frames.Concentrations;
 dL = mean([m.Liquids.Density]); dP = mean([m.Particles.Density]);
