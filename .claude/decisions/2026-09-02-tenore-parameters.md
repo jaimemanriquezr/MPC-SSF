@@ -30,7 +30,7 @@ at `analysis/probes/` conventions, one-off:
 |---|---|
 | particulate concentration, max | 3.61 kg/m^3 |
 | particulate concentration, mean in bed | 0.215 kg/m^3 |
-| phi_b, max | 0.0032 |
+| particulate volume fraction, max | 0.0032 |
 | AREAL biomass, whole column | **0.221 kg/m^2 wet** = 0.055 dry |
 | Tenore biofilm areal (~1 mm at rho = 50) | ~0.05 kg/m^2 dry |
 
@@ -105,7 +105,7 @@ the biofilm term cannot matter wherever there is sand.
 Measured effect of the change, arm 2 (nu 52) against arm 0 (nu 0.094), both at mu_HET 2.0
 under today's code, 30 d lit:
 
-| | areal kg/m^2 | phi_b max | HET% | PHO% | PHO @ 1 m |
+| | areal kg/m^2 | particulate vol.frac. max | HET% | PHO% | PHO @ 1 m |
 |---|---|---|---|---|---|
 | arm 0, nu 0.094 | 0.2151 | 0.00311 | 65.3 | 33.5 | 10.3 |
 | arm 2, nu 52 | 0.2136 | 0.00301 | 65.4 | 33.4 | 10.2 |

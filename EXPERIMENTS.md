@@ -1126,8 +1126,8 @@ horizons that exist, not at the horizons wanted.
 **The effect DECAYS with time.** A 2.4x increase in the heterotroph maximum growth rate
 buys +5.2 % of biomass at 10 d and only +2.2 % at 20 d. Heterotroph growth is not
 kinetics-limited: mu_HET sets how fast the filter approaches a substrate-limited carrying
-capacity, not the capacity. Structure at 20 d: HET areal +2.9 %, PHO +1.0 %, phi_b max
-+20 % — the extra growth concentrates near the surface rather than spreading down.
+capacity, not the capacity. Structure at 20 d: HET areal +2.9 %, PHO +1.0 %, peak particulate
+volume fraction +20 % — the extra growth concentrates near the surface rather than spreading down.
 
 nu_P 0.094 -> 52 moves areal biomass -0.5 % to -0.7 % at both mu, consistent with the
 amendment to `.claude/decisions/2026-09-02-tenore-parameters.md`: sand attenuation
@@ -1138,7 +1138,7 @@ mature-filter predictions. The parameter-table fix does not invalidate the figur
 
 ### HPO4 influent 5.0e-6 -> 0 (cosmos 3565542, winter 3 C; leg 1 of 6)
 
-| arm, 10 d | areal | phi_b max | HET % | PHO % | HPO4 enclosed @2mm | Monod |
+| arm, 10 d | areal | particulate vol.frac. max | HET % | PHO % | HPO4 enclosed @2mm | Monod |
 |---|---|---|---|---|---|---|
 | HPO4_in = 5.0e-6 | 0.1894 | 0.00249 | 32.8 | 66.3 | 6.19e-6 | 0.236 |
 | HPO4_in = 0 | 0.1707 | 0.00226 | 25.6 | 73.5 | 2.00e-6 | 0.091 |
@@ -1151,6 +1151,15 @@ remains, recycled from decay.
 
 **This does NOT yet test the winter sub-surface bulge**, which only appears between 30 and
 60 d. Leg 1 is 10 d. The question the probe was built to answer is still open.
+
+### Correction, 2026-09-02
+
+The column originally headed `phi_b max` in both tables of this block held the PARTICULATE
+volume fraction (sum of particulate concentrations / rho_P), not the biofilm volume
+fraction. True phi_b is 100x larger -- biofilm is 99 % enclosed water at beta = 0.99 -- and
+peaks at 0.311 at z = 0 on chain_fld2x_lit_leg3. The columns are relabelled; the values are
+unchanged and correct as particulate volume fractions. No conclusion in this block depended
+on the label: the effects are all ratios between arms.
 
 ### Provenance
 

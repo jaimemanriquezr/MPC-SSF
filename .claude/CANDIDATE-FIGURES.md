@@ -40,9 +40,13 @@ than expected, because heterotrophs — which drive bacterivory — dominate at 
 - PHO stays ~11% at z = 1 m, where no light reaches and `MinimumLightFactor = 0` since
   2026-08-26 — so phototrophs there cannot be growing. That fraction must arrive by
   transport/attachment. Fine, but the caption must not imply growth.
-- Relative fractions hide absolute magnitude: at 30 d the whole column holds only
-  0.221 kg/m^2 (phi_b max 0.0032). A composition plot of a nearly-empty filter can
-  mislead. Pair it with a total-biomass panel, or state phi_b in the caption.
+- Relative fractions hide absolute magnitude: at 30 d the whole column holds
+  0.221 kg/m^2 of particulate biomass. Pair the plot with an absolute panel, or state
+  phi_b in the caption. (CORRECTED 2026-09-02: this entry first said "phi_b max 0.0032 ...
+  a nearly-empty filter". That was the PARTICULATE volume fraction mislabelled as phi_b.
+  True phi_b = 0.311 at z = 0, 0.145 at 1 cm, 2.2e-3 at 0.5 m, 2.3e-5 at 1 m -- exactly
+  100x larger, because biofilm is 99 % enclosed water at beta = 0.99. The schmutzdecke is
+  NOT nearly empty; the deep bed is. The pairing advice stands, the number did not.)
 - Would need re-running under the Tenore presets (b1fcd03) like everything else.
 
 **Status.** Method fixed 2026-09-02 (see below). Not yet a manuscript figure.
