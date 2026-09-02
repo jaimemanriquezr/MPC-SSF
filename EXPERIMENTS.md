@@ -1164,10 +1164,31 @@ through the new option reproduces the Aug-26 chain under today's code, so any di
 zero arm shows is attributable to HPO4 alone. It is also a third independent confirmation
 that ee0e4d3 was behaviour-preserving.
 
-**The bulge question is still open.** The zero arm is at leg 3 (30 d) with phi_b(2 mm)
-0.1389 against the control's 0.1584, a 12 % deficit consistent with the -9.8 % at 10 d.
-Neither arm shows a bulge at 30 d, and neither does the reference -- it forms between 30 and
-60 d. Legs 4-6 are needed.
+**ANSWERED. Phosphate creates the bulge; removing the influent supply destroys it.**
+Both arms complete, exit 0:0, 60 d.
+
+| z [m] | HPO4 = 0 | HPO4 = 5.0e-6 |
+|---|---|---|
+| 0.002 | 0.1392 | 0.1603 |
+| 0.040 | 0.1268 | 0.1665 |
+| 0.080 | 0.1163 | **0.1781** (maximum) |
+| 0.150 | 0.1103 | 0.1414 |
+| 0.300 | **0.0952** | 0.0800 |
+
+The control peaks at z = 0.088 m, reproducing the reference. The zero arm declines
+MONOTONICALLY from the surface -- maximum at z = 0.004 m, no sub-surface structure. Areal
+biomass 0.6121 against 0.6449, a 5.1 % deficit at 60 d (down from 9.8 % at 10 d).
+
+This confirms the mechanism diagnosed on 2026-09-02 from chain_fld2x_winter_leg9: HPO4
+limits heterotroph growth through the top 8 cm; its Monod factor RISES with depth (0.241 at
+2 mm to 0.288 at 8 cm) because phototrophs deplete it near the surface and thin out with
+depth; DOM takes over as limiting below 8 cm and falls. The net specific rate peaks at that
+crossover, which is where the bulge sits. With no external phosphate, phosphate limits
+everywhere and more severely, the crossover disappears, and so does the bulge.
+
+Note the deepest row: with no phosphate the filter holds MORE biofilm at 30 cm (0.0952
+against 0.0800). Less biomass near the surface consumes less, so more substrate reaches
+depth -- the signature of a supply-limited column.
 
 ### Correction, 2026-09-02
 
