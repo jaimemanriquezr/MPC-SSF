@@ -1288,9 +1288,26 @@ not starve it -- recycling supplies it, which is why the E12 zero arm still carr
 enclosed phosphate. And DOM at -89 % is a near-total strip that also looks strong against the
 cited removals.
 
-NOT YET INVESTIGATED: whether the mineralisation is too fast (death rates), the influent
-biomass too high (HET/PHO influent), or the literature comparison unfair (our marker-free
-liquids are not the same measurement as a TOC assay).
+**RESOLVED 2026-09-02 (Jaime's decision).** The cause is structural, not a calibration error:
+the ecological submodel has **no nitrification and no phosphate sorption**, so mineralised N
+and P have no sink and the filter is a net exporter by construction. NH4 and HPO4 are
+therefore nutrient POOLS only, and **their effluent values are not predictions and are to be
+disregarded.** Decision file:
+`.claude/decisions/2026-09-02-no-nitrification-nutrients-not-predictive.md`.
+
+The literature comparison is `documents/Trikkanad2025.pdf` (Trikannad, van der Hoek, Huang,
+van Halem, *ACS EST Water* 2025, **5**, 6961-6969), depth-resolved in full-scale and lab SSFs:
+NH4 removed completely within 45 cm with NO2/NO3 rising and pH and DO falling — nitrification
+— and PO4 falling from 0.04 mg/L to ultralow levels in two bands, the top 5 cm and 55-90 cm.
+Their FULL-SCALE influent NH4 and PO4 were below 0.01 mg/L, the same order as ours, and still
+showed significant decreases, so the disagreement is not an artefact of a thin influent.
+
+The internal nutrient dynamics are unaffected: phosphate limiting heterotrophs through the top
+8 cm was confirmed by a controlled probe, and that is a statement about local Monod terms, not
+about effluent chemistry.
+
+Manuscript consequence: `fig:1d-outflow-liquids` and `fig:2d-plots` both include NH4 and HPO4
+panels and need a caveat or those species dropped.
 
 ## Staged (not yet accepted)
 
