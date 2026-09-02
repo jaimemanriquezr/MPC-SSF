@@ -163,3 +163,15 @@ carries 3.12x the bed biomass (0.02411 vs 0.00772). Winter leads summer in heigh
 only over the first ~15 d. So the caption's "comparable" is fair on magnitude
 (27 % apart, against 212 % apart in the bed) but the *sign reverses* between bed
 and supernatant, and the taller arm is summer.
+
+**How bad is the resolution caveat?** The only matched refinement triple on disk is
+the `chain_z0_1_n{200,500,1000}` probe (zeta0 = 1 as in the working set, but a
+different influent/detachment setting, and a much taller supernatant film), at
+10 d: h = 11.316 / 17.782 / 19.034 mm for dz = 4.988 / 1.998 / 1.000 mm, i.e.
+h/dz = 2.3 / 8.9 / 19.0. Halving dz from 4.988 mm moved h by +57 %, halving again
+by +7 %. So h converges from below, and it is still 41 % low where h/dz ~ 2.3. The
+fld2x chains sit at h/dz = 0.27-0.43, an order of magnitude coarser in that
+measure: their absolute heights should be read as lower bounds of unknown
+tightness. The scenario *ordering* is a safer reading than the values, since all
+four arms share the grid and the numerics; no refinement of the fld2x family
+exists to confirm even that.
