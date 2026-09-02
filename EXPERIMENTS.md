@@ -1206,6 +1206,61 @@ the saved `results` objects, not from a summary file. Both jobs were still RUNNI
 this block was written; nothing here is an accepted final result.
 
 
+## E13 — Sand-attachment sweep with scraping: Schijven2013 NOT reproduced (2026-09-02)
+
+Cosmos 3565882, 8 arms, all exit 0:0. 20 d filter (chain_fld2x_lit_leg2), constant feed at
+CRef over 3 d, intact vs the same filter with the top 2 cm scraped and no regrowth.
+
+| s | L3d intact | L3d scraped | **dL** | Schijven |
+|---|---|---|---|---|
+| 0 (current model) | 0.113 | 0.095 | **0.018** | |
+| 0.06 (Schijven alpha) | 0.609 | 0.595 | **0.013** | MS2 0.6 |
+| 0.3 | 2.287 | 2.280 | **0.007** | |
+| 1.0 (no asymmetry) | 6.465 | 6.473 | **-0.008** | E. coli 1.6 |
+
+### The scraping loss is not reproduced at any s
+
+dL is 0.02 log at best against Schijven's 0.6-1.6 log -- **30 to 200 times too small**. The
+predicted DIRECTION holds (dL falls monotonically as s rises, and at s = 1 scraping does
+nothing at all, because the sand does the removing and scraping leaves the sand behind),
+but the magnitude is negligible throughout. No value of s reproduces the experiment.
+
+**Why, and it is consistent with E12's flux decomposition.** The top 2 cm carries 18 % of
+removal activity; removal is spread over 2-25 cm. Removing 2 cm can therefore only cost
+~18 % of the total, and 18 % of 0.113 log is 0.02 log -- exactly what was measured. The
+arithmetic is self-consistent; the model simply does not concentrate removal at the surface.
+
+**That is a real discrepancy with the empirical record.** Schijven's filters lost 0.6-1.6 log
+to a scrape, which means their removal is far more surface-concentrated than ours. Either
+this model distributes removal too deeply, or a real Schmutzdecke has an attachment
+efficiency much higher than our biofilm term grants it. This is empirical evidence AGAINST
+the "deeper layers contribute most" reading, and it should be weighed against Chan2018's
+density-times-volume argument rather than either being taken alone.
+
+### The absolute removal is the bigger finding
+
+| s | L3d |
+|---|---|
+| 0 | **0.113** |
+| 0.06 | 0.609 |
+| 0.3 | 2.287 |
+| 1.0 | 6.465 |
+
+**At the model's current s = 0 the filter removes 0.11 log of marker over three days of
+constant feed** -- about 23 % of the influent, i.e. essentially no removal. Schijven measured
+0.082-3.3 log for MS2 and 0.94-4.5 for E. coli WR1. At s = 0.06, his own T4 sticking
+efficiency, this model gives 0.61 log, inside his MS2 range.
+
+So the choice s = 0 does not merely make removal conservative; it makes it nearly absent,
+and it is the single assumption separating this model from the measured range.
+
+### Caveat
+
+Schijven measured MS2 and E. coli WR1. Our marker is neither and its inactivation and
+bacterivory rates are Manriquez Table B.4, not fitted to his organisms. This is evidence
+about the ATTACHMENT STRUCTURE, not a validation or refutation of the pathogen submodel.
+
+
 ## Staged (not yet accepted)
 
 | job | script | what | submitted | ETA |
