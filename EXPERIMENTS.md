@@ -1111,6 +1111,54 @@ Monod terms not limiting on this host, per the 2026-08-27 audit).
    pulse/flowstep's shared `chain_fld2x_lit_leg6` anchor; its ranking is reported alongside the
    other two as a robustness check, not folded into one number.
 
+## E12 — New-parameter evaluation: mu_HET 4.8 and HPO4 influent 0 — PARTIAL (2026-09-02)
+
+**Status: partial, both runs still in flight at the time of writing.** Reported at the
+horizons that exist, not at the horizons wanted.
+
+### mu_HET 2.0 -> 4.8 (cosmos 3564977, 2x2 with nu_P; legs 1-2 of 3)
+
+| horizon | areal biomass effect at nu 0.094 | at nu 52 | interaction |
+|---|---|---|---|
+| 10 d | +5.2 % | +5.1 % | none (0.1 pp) |
+| 20 d | +2.2 % | +2.0 % | none (0.25 pp) |
+
+**The effect DECAYS with time.** A 2.4x increase in the heterotroph maximum growth rate
+buys +5.2 % of biomass at 10 d and only +2.2 % at 20 d. Heterotroph growth is not
+kinetics-limited: mu_HET sets how fast the filter approaches a substrate-limited carrying
+capacity, not the capacity. Structure at 20 d: HET areal +2.9 %, PHO +1.0 %, phi_b max
++20 % — the extra growth concentrates near the surface rather than spreading down.
+
+nu_P 0.094 -> 52 moves areal biomass -0.5 % to -0.7 % at both mu, consistent with the
+amendment to `.claude/decisions/2026-09-02-tenore-parameters.md`: sand attenuation
+dominates and biofilm self-shading is immaterial at either value.
+
+*Consequence for the revision: the Tenore mu_HET correction does not materially change
+mature-filter predictions. The parameter-table fix does not invalidate the figures.*
+
+### HPO4 influent 5.0e-6 -> 0 (cosmos 3565542, winter 3 C; leg 1 of 6)
+
+| arm, 10 d | areal | phi_b max | HET % | PHO % | HPO4 enclosed @2mm | Monod |
+|---|---|---|---|---|---|---|
+| HPO4_in = 5.0e-6 | 0.1894 | 0.00249 | 32.8 | 66.3 | 6.19e-6 | 0.236 |
+| HPO4_in = 0 | 0.1707 | 0.00226 | 25.6 | 73.5 | 2.00e-6 | 0.091 |
+
+Removing the external phosphate supply costs **9.8 % of areal biomass** and shifts
+composition by **7 percentage points** from heterotrophs to phototrophs. That asymmetry is
+the diagnostic: HPO4 limits HETEROTROPHS specifically, because their half-saturation
+(2.0e-5) is twenty times the phototrophs' (1.0e-6). Phosphate does not vanish — 2.0e-6
+remains, recycled from decay.
+
+**This does NOT yet test the winter sub-surface bulge**, which only appears between 30 and
+60 d. Leg 1 is 10 d. The question the probe was built to answer is still open.
+
+### Provenance
+
+mu_HET arms fetched from cosmos and read directly; every number above was computed from
+the saved `results` objects, not from a summary file. Both jobs were still RUNNING when
+this block was written; nothing here is an accepted final result.
+
+
 ## Staged (not yet accepted)
 
 | job | script | what | submitted | ETA |
