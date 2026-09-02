@@ -73,6 +73,8 @@ arguments
     % Biofilm self-shading nu_P [m^2/kg]; NaN = preset (52 since b1fcd03).
     % 0.094 reproduces the pre-b1fcd03 Gallegos2000 coefficient.
     opts.Attenuation (1,1) double = NaN
+    % HET/PHO sand attachment factor; NaN = preset (1.0).
+    opts.SandBiomass (1,1) double = NaN
     opts.LightForm (1,1) string {mustBeMember(opts.LightForm, ["chain", "winter"])} = "chain"
 end
 here = fileparts(mfilename("fullpath")); W = fileparts(fileparts(here));
@@ -90,6 +92,7 @@ f = f.addGridPoints(opts.NCells);
 mpArgs = {"PhototrophRespiration", opts.Respiration, "RespirationForm", "reichert", ...
           "NormalizedLight", true};
 if ~isnan(opts.Attenuation), mpArgs = [mpArgs, {"Attenuation", opts.Attenuation}]; end
+if ~isnan(opts.SandBiomass), mpArgs = [mpArgs, {"SandBiomass", opts.SandBiomass}]; end
 mp = pathogenModel(mpArgs{:});
 % modelLund only retires the 1 % dark-growth floor inside its respiration
 % branches; with Respiration = 0 it would come back. The floor is an artefact term

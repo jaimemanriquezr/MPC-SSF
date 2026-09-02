@@ -69,6 +69,8 @@ arguments
     options.NormalizedLight (1,1) logical = false;
     options.RespirationLightK (1,1) {mustBeNumeric} = 1.0;
     % nu_P [m^2/kg]; NaN = modelLund's preset (52). 0.094 = pre-b1fcd03.
+    % HET/PHO SandAttachmentFactor; NaN = modelLund's preset (1.0).
+    options.SandBiomass (1,1) {mustBeNumeric} = NaN;
     options.Attenuation (1,1) {mustBeNumeric} = NaN;
     options.RespirationForm (1,1) string = "";
 end
@@ -80,6 +82,9 @@ lundArgs = {"PhototrophRespiration", options.PhototrophRespiration, ...
             "RespirationForm", options.RespirationForm};
 if ~isnan(options.Attenuation)
     lundArgs = [lundArgs, {"Attenuation", options.Attenuation}];
+end
+if ~isnan(options.SandBiomass)
+    lundArgs = [lundArgs, {"SandBiomass", options.SandBiomass}];
 end
 lund = modelLund(lundArgs{:});
 components = lund.Components;

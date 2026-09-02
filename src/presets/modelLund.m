@@ -12,6 +12,12 @@ function model = modelLund(options)
             % 5-reaction model exactly (goldens unchanged).
             % Biofilm self-shading coefficient nu_P [m^2/kg]. Default is the preset
             % value; pass 0.094 to reproduce the pre-b1fcd03 (Gallegos2000) runs.
+            % SandAttachmentFactor for the BIOMASS components HET and PHO: attachment to
+            % bare sand relative to attachment to biofilm. 1.0 = the current model (sand
+            % and biofilm equally likely per unit area). Below 1, biomass accretes
+            % preferentially on existing biofilm. POM is unaffected -- its AttachmentSand
+            % is 0, so its factor is inert.
+            options.SandBiomass (1,1) {mustBeNumeric} = 1.0;
             options.Attenuation (1,1) {mustBeNumeric} = 52;
             options.PhototrophRespiration (1,1) {mustBeNumeric} = 0.0;
             % Wolf2007 storage fraction f (kg COD PG per kg COD PHO built) and
@@ -97,6 +103,12 @@ function model = modelLund(options)
     DOM =  Liquid(Name="DOM", Density=densityLiquid, Dispersivity=dispersivityLiquid, ...
                             Transport=3.00E+02);
 
+
+    % Particle is a VALUE class, so a loop variable would modify a copy. Assign
+    % directly. POM is deliberately untouched: its AttachmentSand is 0, so its
+    % factor is inert, and PAT is governed separately by SandPathogen.
+    HET.SandAttachmentFactor = options.SandBiomass;
+    PHO.SandAttachmentFactor = options.SandBiomass;
 
     heterotrophGrowth =  Reaction(Name="Heterotroph growth", IsLightDependent=false, ...
             NominalRate=4.80, ...   % Tenore2021 Table 1 mu_max,2 (f2 = heterotrophs)

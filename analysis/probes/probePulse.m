@@ -67,6 +67,8 @@ arguments
     % PAT SandAttachmentFactor; NaN = preset (0, i.e. the marker cannot attach to
     % bare sand). 0.06 is Schijven2013's T4 sticking efficiency (geometric mean).
     opts.SandPathogen (1,1) double = NaN
+    % HET/PHO sand attachment factor; NaN = preset (1.0).
+    opts.SandBiomass (1,1) double = NaN
     opts.NFrames (1,1) double = 145            % 3 d at 30 min
 end
 here = fileparts(mfilename("fullpath")); W = fileparts(fileparts(here));
@@ -92,6 +94,7 @@ f.InflowVelocity = opts.FlowSurge*f.InflowVelocity;
 
 mpArgs = {"NormalizedLight", true};
 if ~isnan(opts.SandPathogen), mpArgs = [mpArgs, {"SandPathogen", opts.SandPathogen}]; end
+if ~isnan(opts.SandBiomass), mpArgs = [mpArgs, {"SandBiomass", opts.SandBiomass}]; end
 mp = pathogenModel(mpArgs{:});
 rx = mp.Reactions;
 rx([rx.Name] == "Phototroph growth").MinimumLightFactor = 0.0;   % as probeChain
