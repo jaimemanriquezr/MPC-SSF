@@ -49,7 +49,24 @@ function model = modelLund(options)
     end
 
     densityParticle = 1.117E+03;
-    attenuationParticle = 0.094;
+    % Biofilm self-shading, m^2/kg. 52 = Tenore2021 Table 1 k_tot (210) converted from
+    % DRY to WET mass, x f_dry = 0.25. Was 0.094 (Gallegos2000), which is light
+    % attenuation by organic matter suspended in natural water, not by biofilm.
+    %
+    % Why the conversion is needed: Tenore's k_tot multiplies areal DRY biomass; this
+    % coefficient multiplies the wet-mass concentration this model carries (rho_P = 1117
+    % is a hydrated-cell density). Measured on chain_fld2x_lit_leg6 (60 d), the filter
+    % holds 0.221 kg/m^2 wet = 0.055 kg/m^2 dry, against Tenore's ~0.05 kg/m^2 -- the
+    % two systems carry the SAME areal loading, so his coefficient transfers once the
+    % wet/dry basis is matched. At 52 the column reaches eta_P ~ 11.5, comparable to
+    % Tenore's ~10.5. At the old 0.094 it was eta_P = 0.021, i.e. 2% attenuation over
+    % the whole bed -- self-shading was effectively switched off.
+    %
+    % *** COUPLED TO f_dry (decision 2026-09-01, f_dry = 0.25, implement after Friday).
+    % *** If f_dry is applied to rho_P and the influents, the state variable becomes DRY
+    % *** mass and this MUST revert to Tenore's 210. Changing one without the other
+    % *** double-counts the water. The two values are the same physics.
+    attenuationParticle = 52;
     dispersivityParticle = 1.20E-02;
     HET =  Particle(Name="HET", Density=densityParticle, Dispersivity=dispersivityParticle, ...
                              Transport=5.47, AttachmentSand=5.47E+02, AttachmentMatrix=5.47E+02,...
@@ -79,7 +96,7 @@ function model = modelLund(options)
 
 
     heterotrophGrowth =  Reaction(Name="Heterotroph growth", IsLightDependent=false, ...
-            NominalRate=2.00, ...
+            NominalRate=4.80, ...   % Tenore2021 Table 1 mu_max,2 (f2 = heterotrophs)
             TemperatureCorrectionFactor=1.0725, ...
             Order=dictionary("HET", 1), ...
             HalfSaturationConstants=dictionary("O2", 2.00E-04, "DOM", 4.00E-03, "NH4", 1.00E-06, "HPO4", 2.00E-05), ...
