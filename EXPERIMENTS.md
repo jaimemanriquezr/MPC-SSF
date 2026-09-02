@@ -1387,6 +1387,46 @@ This is a publishable negative: a continuum attachment model of this form cannot
 Schmutzdecke scraping effect of the measured size without an explicit straining mechanism.
 
 
+## E15 — Figure 11 extended to 60 d: the extension carries no information (2026-09-03)
+
+Cosmos 3565891, 4 arms at TPost = 30 (t = 30 -> 60 d), 1441 frames, 30-minute sampling.
+Requested to draw `fig:pulse-outflow` at 40, 50 and 60 d instead of the current 37 d.
+
+Marker outflow after the feed ends at t = 32 d:
+
+| t [d] | exp2 c_out | exp2 L | exp3 c_out | exp3 L |
+|---|---|---|---|---|
+| 32 | 4.16e-3 | 0.11 | 4.22e-3 | 0.10 |
+| 35 | 6.3e-17 | 13.9 | 3.0e-7 | 4.25 |
+| 37 | 4.4e-25 | 22.1 | 5.7e-9 | 5.97 |
+| 40 | 2.6e-37 | -- | 1.5e-11 | 8.55 |
+| 60 | **7.3e-119** | -- | **8.9e-29** | 25.8 |
+
+**Beyond about day 35 the computed outflow is numerically meaningless.** 1e-119 kg/m^3 is not
+a small concentration, it is nothing: one bacterial cell per cubic metre is around 1e-18
+kg/m^3, so exp2 at day 40 is nineteen orders of magnitude below a single cell in the whole
+filter. These are the exponential tail of a linear decay with no physical floor.
+
+It also breaches the solver's own resolution bound. The O(dt) truncation limit on resolvable
+removal is ~2.9 log (`.claude/decisions/2026-09-01-pat-export-closure-resolved.md`, the `LCap`
+the masked OAT uses). exp3 crosses 2.9 log before day 35; exp2 crosses it almost as soon as
+the feed stops.
+
+**Conclusion: do not extend the figure.** The runs are clean (Flag OK, 1441 frames each) and
+there is simply nothing to plot after ~day 35. The marker is gone, physically and numerically,
+within a few days of the feed ending.
+
+### Consequence for the PUBLISHED Figure 11
+
+If exp3 passes 2.9 log before day 35 and the current panels run to 37 d, **the existing
+figure's tails are already beyond the resolvable range** -- the last days of every curve are
+truncation error rather than physics. This is independent of any extension and should be
+settled before the figure goes to reviewers.
+
+Recommendation: truncate each curve where it crosses the 2.9 log resolution bound, and say so
+in the caption. Drawing a curve to 1e-119 asserts a precision the scheme does not have.
+
+
 ## Staged (not yet accepted)
 
 | job | script | what | submitted | ETA |
