@@ -31,6 +31,10 @@ for i = 1:n
         texLabel(T.param(i)), flag, T.block(i), ...
         sig2(T.I_rms(i)), sig2(T.I_max(i)), sig2(T.D_min(i)), T.asymmetry(i));
 end
+% the closing rule lives INSIDE this file: a \hline directly after
+% \input{<this file>} inside tabular breaks on the file-end tokens
+% (Misplaced \noalign), so the consumer must \input and then \end{tabular}.
+fprintf(fid, "\\hline\n");
 fprintf("wrote %s (%d rows)\n", opts.OutFile, n);
 end
 
