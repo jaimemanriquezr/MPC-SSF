@@ -1154,8 +1154,20 @@ the diagnostic: HPO4 limits HETEROTROPHS specifically, because their half-satura
 (2.0e-5) is twenty times the phototrophs' (1.0e-6). Phosphate does not vanish — 2.0e-6
 remains, recycled from decay.
 
-**This does NOT yet test the winter sub-surface bulge**, which only appears between 30 and
-60 d. Leg 1 is 10 d. The question the probe was built to answer is still open.
+**CONTROL VALIDATED (20:11).** Arm 1 finished at 60 d in 1h20m -- faster than the 3.2 h
+estimate, because winter's slow kinetics permit larger adaptive steps than the summer runs
+the estimate came from. At 60 d it reproduces `chain_fld2x_winter_leg6` EXACTLY:
+phi_b(2 mm) = 0.1603, maximum 0.1808 at z = 0.088 m, bulge present. Identical to 4 s.f.
+
+That is the validation the probe needed. Pinning mu_HET = 2.0 and Attenuation = 0.094
+through the new option reproduces the Aug-26 chain under today's code, so any difference the
+zero arm shows is attributable to HPO4 alone. It is also a third independent confirmation
+that ee0e4d3 was behaviour-preserving.
+
+**The bulge question is still open.** The zero arm is at leg 3 (30 d) with phi_b(2 mm)
+0.1389 against the control's 0.1584, a 12 % deficit consistent with the -9.8 % at 10 d.
+Neither arm shows a bulge at 30 d, and neither does the reference -- it forms between 30 and
+60 d. Legs 4-6 are needed.
 
 ### Correction, 2026-09-02
 
