@@ -1003,3 +1003,116 @@ confirm P2's plateau-at-inflow result at both amplitudes (linear in dose; tails 
 2. f_dry unresolved — biomass ratios are convention-free, but the µg C/g values are not.
 3. The winter/summer pair differ in BOTH temperature and light curve, as published; the s90
    variants isolate them at N=100 only.
+
+## E11 — Working-set OAT campaign: pulse, flowstep, startup (29 parameters) — COSMOS (2026-09-02)
+
+**Logged** 2026-09-02. **Status:** complete, all three scenarios. The manuscript sensitivity
+section's log-OAT campaign (`logOatCampaign.m`) on the audited fixed model, run for all three
+disturbance scenarios that Sept-14 needs: pulse, flowstep and startup.
+
+### Commands
+
+```bash
+# cosmos, from the repo root (MPC-SSF-manuscript)
+sbatch slurm/oat_pulse.sbatch      # job 3562754, array 0-28
+sbatch slurm/oat_flowstep.sbatch   # job 3563342, array 0-28
+sbatch slurm/oat_startup.sbatch    # job 3563343, array 0-28
+```
+
+Each array task runs one parameter's full OAT triple (baseline + ×2/×½ arms, or the constrained
+β scheme below) in one `logOatCampaign` call, one task per parameter (not per sign — the
+baseline is shared, see the sbatch header rationale):
+
+```matlab
+logOatCampaign("pulse", Preset="workingset", Snapshot="chain_fld2x_lit_leg6.mat", ...
+    NCells=500, TPost=3.0, MaxDt=5e-5, NFrames=145, ParamFilter="<param>", OutTag="_<param>")
+% flowstep: same call, scenario "flowstep"
+% startup: scenario "startup", no Snapshot (clean IC; ripening is the disturbance)
+```
+
+All three jobs COMPLETED with exit status 0:0 on every one of the 29 array tasks (87 arms
+total).
+
+### Parameters
+
+Audited `workingset` preset, anchored on the E4/E9 mature-filter snapshot
+`analysis/probes/data/chain/chain_fld2x_lit_leg6.mat` (pulse and flowstep only — startup starts
+from a clean column). `NCells=500`, `TPost=3.0` d post-disturbance, `MaxDt=5e-5`, `NFrames=145`.
+The 29-parameter design is `campaignParams` inside `analysis/logOatCampaign.m` (velocity
+excluded as a fixed operating condition, decision 2026-08-18): `temperature, influent_PAT,
+dispersivity, transport_P, attach_sand, sand_pathogen, mu_HET, mu_PHO, d_HET, d_PHO, hydrolysis,
+theta_growth, theta_death, K_O2_HET, K_DOM_HET, K_HPO4_HET, K_O2_PAT, K_pred, marker_growth,
+inactivation, bacterivory, zeta_0, kappa, zeta_1, detach_scale, light_att_water, light_att_sand,
+attenuation_P, beta_porosity` — every parameter perturbed ×2/×½ except `beta_porosity`, which
+runs the constrained gap scheme of `analysis/logOatCampaign.m:382-386` (β = 0.98 / 0.95, secant
+denominator ln 2.5).
+
+### Wall time
+
+Not pulled from `sacct`; bracketed from the per-parameter output file timestamps (29 tasks run
+in parallel per array, 4 h limit each). Pulse: first `L0.csv` 2026-09-01 17:38, last
+`measures.csv` 18:36 (~1 h span); per-task time ~31 min (`.claude/JOURNAL.md` 2026-09-01 entry).
+Flowstep: first `L0.csv` 23:44, last `measures.csv` 2026-09-02 00:40 (~1 h span). Startup: first
+`L0.csv` 23:41, last `measures.csv` 00:15 (~34 min span).
+
+### Output and figures
+
+Data: `analysis/results/oat/log_oat_{pulse,flowstep,startup}_<param>/` (`L0.csv`,
+`curves_<param>.csv`, `measures.csv`), one directory per parameter per scenario, 87 total.
+Concatenated raw measures: `analysis/results/log_oat_{pulse,flowstep,startup}/measures.csv` (the
+pre-existing merged-table convention). Resolution-masked rankings (`maskOatMeasures.m`, LCap =
+2.9 log, the O(Δt) closure bound of `2026-09-01-pat-export-closure-resolved.md`):
+`analysis/results/oat/measures_masked.csv` (pulse), `measures_masked_flowstep.csv`,
+`measures_masked_startup.csv`. **Accepted artefacts for the manuscript** (regenerated
+2026-09-02): `analysis/results/figures/oat/oat_ranking_rows_masked.tex` (from
+`analysis/results/oat/masked/measures.csv`, the pulse scenario) and
+`fig_oat_tornado_masked.{pdf,png}`. The unmasked companions `oat_ranking_rows.tex` and
+`fig_oat_tornado.{pdf,png}` are also regenerated but are NOT accepted artefacts — see caveat 1.
+
+### Outcome
+
+**All 87 arms flag OK; `clog_driver = 0` in every one of the three campaigns' 29-row measures
+tables** (`log_oat_{pulse,flowstep,startup}_*/measures.csv`) — no OAT arm, at either ×2/×½ or
+the constrained β gap, drove the working set to clogging.
+
+Masked ranking leader in all three scenarios is `sand_pathogen` (the PAT-sand sticking
+efficiency, block transport), by a wide margin over the rest of the table:
+
+| I_rms (masked) | pulse | flowstep | startup |
+|---|---|---|---|
+| sand_pathogen | **0.488** | **0.351** | **0.499** |
+| attach_sand | 0.157 | 0.097 | 0.021 |
+| dispersivity | 0.049 | 0.021 | 0.040 |
+| beta_porosity | 0.039 | 0.027 | 0.006 |
+| temperature | 0.041 | 0.027 | 0.003 |
+
+(`analysis/results/oat/measures_masked{,_flowstep,_startup}.csv`, sorted by `I_rms_masked`,
+top 5 rows of each.) `K_O2_HET` and `K_O2_PAT` are flat zero in all three (audited HET/PAT
+Monod terms not limiting on this host, per the 2026-08-27 audit).
+
+### Caveats
+
+1. **The unmasked `oat_ranking_rows.tex`/`fig_oat_tornado.{pdf,png}` are not a pulse/flowstep/
+   startup blend — they are the flowstep scenario only.** `readOatMeasures` (shared by
+   `makeOatRankingTable.m` and `plotOatTornado.m`) globs `analysis/results/oat/log_oat_*/
+   measures.csv`, which matches all three scenarios' per-parameter directories under the same
+   parent, then keeps one row per `param` via `unique(T.param, "stable")` — the first hit in
+   `dir`'s alphabetical order, i.e. `log_oat_flowstep_*` before `log_oat_pulse_*` before
+   `log_oat_startup_*`. Confirmed numerically: `oat_ranking_rows.tex`'s β row (I_rms 0.028) and
+   dispersivity row (1.2) match `log_oat_flowstep_beta_porosity`/`_dispersivity` exactly, not
+   pulse or startup. The **masked** table does not have this problem — it reads the single
+   pre-scoped file `analysis/results/oat/masked/measures.csv`, which is pulse-only by
+   construction. Only the masked artefacts should be cited as "the" campaign ranking; the
+   unmasked pair is mislabeled and should be regenerated per-scenario before any manuscript use.
+2. The masked tables' `kept_fraction` is ~0.94-0.97 (27-28 of 29 disturbance-window samples
+   inside the 2.9-log resolution band) — the resolution mask removes only a small tail, not a
+   large share of each curve.
+3. Startup has no snapshot dependency (clean-column IC), so it is not directly comparable to
+   pulse/flowstep's shared `chain_fld2x_lit_leg6` anchor; its ranking is reported alongside the
+   other two as a robustness check, not folded into one number.
+
+## Staged (not yet accepted)
+
+| job | script | what | submitted | ETA |
+|---|---|---|---|---|
+| 3563617 | `slurm/patscrape.sbatch` | fig:pat-scraping re-run — scrape leg3 (30 d) at 0/4/8/12 cm, 20 d regrowth, then constant feed + 10× pulse + 100× pulse via probePulse | 2026-09-02T10:21:16+02:00 | ~2.5 h/arm, 4 arms parallel (supersedes cancelled 3563613) |
