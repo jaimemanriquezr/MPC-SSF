@@ -70,6 +70,9 @@ arguments
     opts.Temperature (1,1) double = 19
     % Diel light forcing: "chain" = the Table B.1 curve every chain run used;
     % "winter" = the manuscript's winter forcing (probeSeason90 / fig:seasons-light).
+    % Biofilm self-shading nu_P [m^2/kg]; NaN = preset (52 since b1fcd03).
+    % 0.094 reproduces the pre-b1fcd03 Gallegos2000 coefficient.
+    opts.Attenuation (1,1) double = NaN
     opts.LightForm (1,1) string {mustBeMember(opts.LightForm, ["chain", "winter"])} = "chain"
 end
 here = fileparts(mfilename("fullpath")); W = fileparts(fileparts(here));
@@ -84,7 +87,10 @@ end
 f = SandFilter(Temperature=opts.Temperature, LightAttenuationCoeffSand=opts.EtaSand, SandRoughness=opts.Delta, ...
     LightIrradiation=lightFn);
 f = f.addGridPoints(opts.NCells);
-mp = pathogenModel(PhototrophRespiration=opts.Respiration, RespirationForm="reichert", NormalizedLight=true);
+mpArgs = {"PhototrophRespiration", opts.Respiration, "RespirationForm", "reichert", ...
+          "NormalizedLight", true};
+if ~isnan(opts.Attenuation), mpArgs = [mpArgs, {"Attenuation", opts.Attenuation}]; end
+mp = pathogenModel(mpArgs{:});
 % modelLund only retires the 1 % dark-growth floor inside its respiration
 % branches; with Respiration = 0 it would come back. The floor is an artefact term
 % (decision 2026-08-18-phototroph-respiration-rate), so it is zeroed unconditionally.

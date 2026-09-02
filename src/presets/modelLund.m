@@ -10,6 +10,9 @@ function model = modelLund(options)
             % avg 0.0115 /h = 0.276 /d (Campos2006 Table 3, Brown & Barnwell
             % 1987), theta_kra = 1.08. Default 0.0 reproduces the original
             % 5-reaction model exactly (goldens unchanged).
+            % Biofilm self-shading coefficient nu_P [m^2/kg]. Default is the preset
+            % value; pass 0.094 to reproduce the pre-b1fcd03 (Gallegos2000) runs.
+            options.Attenuation (1,1) {mustBeNumeric} = 52;
             options.PhototrophRespiration (1,1) {mustBeNumeric} = 0.0;
             % Wolf2007 storage fraction f (kg COD PG per kg COD PHO built) and
             % yield Y_PH/PG (ASSUMED 0.63, the ASM heterotroph yield; Wolf2007
@@ -66,7 +69,7 @@ function model = modelLund(options)
     % *** If f_dry is applied to rho_P and the influents, the state variable becomes DRY
     % *** mass and this MUST revert to Tenore's 210. Changing one without the other
     % *** double-counts the water. The two values are the same physics.
-    attenuationParticle = 52;
+    attenuationParticle = options.Attenuation;
     dispersivityParticle = 1.20E-02;
     HET =  Particle(Name="HET", Density=densityParticle, Dispersivity=dispersivityParticle, ...
                              Transport=5.47, AttachmentSand=5.47E+02, AttachmentMatrix=5.47E+02,...

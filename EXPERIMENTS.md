@@ -1116,4 +1116,4 @@ Monod terms not limiting on this host, per the 2026-08-27 audit).
 | job | script | what | submitted | ETA |
 |---|---|---|---|---|
 | 3563617 | `slurm/patscrape.sbatch` | fig:pat-scraping re-run — scrape leg3 (30 d) at 0/4/8/12 cm, 20 d regrowth, then constant feed + 10× pulse + 100× pulse via probePulse | 2026-09-02T10:21:16+02:00 | ~2.5 h/arm, 4 arms parallel (supersedes cancelled 3563613) |
-| 3564903 | `slurm/tenore_chain.sbatch` | Tenore-preset chain, 30 d, lit + dark — effect of mu_HET 2.0→4.8 and nu_P 0.094→52 on filter evolution; compare against chain_fld2x_{lit,dark}_leg1..3 | 2026-09-02T16:41:31+02:00 | ~95 min/arm, 2 arms parallel |
+| 3564977 | `slurm/tenore_2x2.sbatch` | 2×2 attribution, lit, 30 d: {mu_HET 2.0, 4.8} × {nu_P 0.094, 52}, all four corners under today's code | 2026-09-02T16:47:00+02:00 | ~95 min/arm, 4 arms parallel |
