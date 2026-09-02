@@ -1423,8 +1423,29 @@ figure's tails are already beyond the resolvable range** -- the last days of eve
 truncation error rather than physics. This is independent of any extension and should be
 settled before the figure goes to reviewers.
 
-Recommendation: truncate each curve where it crosses the 2.9 log resolution bound, and say so
-in the caption. Drawing a curve to 1e-119 asserts a precision the scheme does not have.
+All four arms, resolution-bound crossing (feed runs t = 30 -> 32 d):
+
+| arm | crosses 2.9 log at | usable span | c_out there |
+|---|---|---|---|
+| p1x | t = 32.35 | 2.35 d | 6.5e-6 |
+| p1em3 | t = 32.00 | 2.00 d | 4.3e-6 |
+| exp2 | t = 32.31 | 2.31 d | 5.9e-6 |
+| exp3 | t = 33.44 | 3.44 d | 6.6e-6 |
+
+Every curve crosses within 0 to 1.4 days of the feed ending; p1em3 crosses at the exact moment
+it stops. The published panels run to 37 d, so **about five of the seven days shown would be
+below resolution**.
+
+Recommendation: truncate each curve where it crosses 2.9 log and say so in the caption.
+Drawing to 1e-119 asserts a precision the scheme does not have.
+
+**CAVEAT, and the recommendation rests on it.** The 2.9 log bound was derived in
+`.claude/decisions/2026-09-01-pat-export-closure-resolved.md` for the PULSE scenario; these
+runs are a 2 d constant feed at PulseFactor = 1. The bound comes from O(dt) truncation in the
+PAT export and would be expected to carry over, but that has NOT been demonstrated. The check
+is one arm at half MaxDt: if the crossing time is unchanged, the bound transfers; if it moves,
+the bound is configuration-specific and must be re-derived for the feed before any figure is
+redrawn.
 
 
 ## Staged (not yet accepted)
