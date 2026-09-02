@@ -326,7 +326,15 @@ for nm = ["O2" "IC" "NH4" "HPO4" "DOM"]
     set(ax, TickLabelInterpreter="latex", FontSize=14, YDir="reverse");
     xlim(ax, [0 30]); ylim(ax, [-1 1]);
     zlim(ax, [0 max(max(C(:)), eps)*1.02]);
-    saveBoth(f, outDir, "rec_Outflow2D" + nm);
+    % RASTERISED, not vector like the rest (saveBoth). These are surf plots:
+    % vector export writes one path per face, which made the PDFs large and slow
+    % to render in the compiled manuscript. 300 dpi at this canvas size is well
+    % above print need.
+    stem = fullfile(outDir, "rec_Outflow2D" + nm);
+    exportgraphics(f, stem + ".png", Resolution=300);
+    exportgraphics(f, stem + ".pdf", ContentType="image", Resolution=300);
+    close(f);
+    fprintf("  rec_Outflow2D%s.{png,pdf} (raster, 300 dpi)\n", nm);
 end
 end
 
