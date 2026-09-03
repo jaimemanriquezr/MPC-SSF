@@ -1482,6 +1482,28 @@ the net specific growth rate peaked at the HPO4/DOM crossover around 8 cm. At mu
 heterotrophs grow 2.4x faster and win at the surface despite that competition, so the crossover
 no longer produces a maximum.
 
+### The phosphate choice under the corrected parameters
+
+Both winter arms complete (3565918 arms 2 and 3, exit 0:0), 90 d:
+
+| winter 90 d, NEW presets | areal | phi_b max | top 2 cm | HET % | PHO % |
+|---|---|---|---|---|---|
+| HPO4_in = 0 | 0.6797 | **0.2720** | 5.9 % | 63.5 % | 35.4 % |
+| HPO4_in = 5.0e-6 | 0.6827 | **0.4286** | 9.1 % | 63.4 % | 35.5 % |
+
+**Total biomass is now insensitive to influent phosphate: -0.4 %, against -5.1 % at 60 d under
+the old presets. The SURFACE PEAK is not: -37 %.** Composition is identical to a tenth of a
+percent.
+
+So under the corrected parameters influent phosphate controls Schmutzdecke INTENSITY, not
+total biomass or community structure. That bears directly on the manuscript, because
+`fig:seasons-results`'s second panel is a zoom on the upper layers -- exactly where the two
+choices differ most. The choice cannot be deferred on the grounds that it barely matters; it
+barely matters for the integral and matters a great deal for the panel that is plotted.
+
+Note also that HPO4_in = 0 with the new presets gives phi_b max = 0.2720, close to the OLD
+preset value of 0.3060: the two changes partly cancel in the surface peak.
+
 **Consequence.** The winter anomaly Jaime spotted, and the phosphate diagnosis confirmed by the
 controlled probe 3565542, are properties of the OLD mu_HET = 2.0. Both were correct for the
 parameters in force at the time; neither describes the corrected model. The winter profile
