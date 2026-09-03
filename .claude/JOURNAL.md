@@ -1410,3 +1410,137 @@ recommendation rests on it.
 - **In flight, NOT mine, do not commit**: `src/@Results/Results.m` (getVolumeFractions call
   signature) and `src/presets/modelPathogen.m` (deleted in the working tree). In AWR-SSF:
   `main.tex`, `model.tex`, `pathogen.tex`, `results.tex` and the five untracked PNGs.
+
+## 2026-09-03 (continued) — table audit, figure regeneration, autonomous block
+
+### What we accomplished
+
+**All four manuscript tables audited against the code and the cited papers.** Every value was
+checked against what `probeChain`/the presets actually run, and every citation against the
+paper it names.
+
+- *Table 1 (incoming concentrations).* PAT 5.36e-3 is not an influent — every chain runs PAT
+  influent 0; it is `CRef`, the pulse peak, and `probePulse.m:16` cites this very table as its
+  authority, so the two are circular. `probeChain`'s own default `Influent` is a THIRD set
+  (HET 2.68e-3, PHO 1.00e-2, HPO4 0, DOM 1.75e-4) — the old published values — and every
+  production sbatch overrides it. Ammonia was briefly changed to 1.0e-5/Campos2006-2 and
+  REVERTED: Chan2018 does support 0.02 mg/L, the value is in a figure, and the prose below the
+  table already derives it. HET now also cites Chan2018 (TCC 6e5 cells/mL influent, the count
+  source); PHO also cites Campos2006-2 (Fig. 1(a), influent Chl-a 4.4-6.9 ug/L).
+- *Table 2 (general parameters).* 17 of 18 rows matched. Osmosis was wrong three ways: the row
+  read "Osmosis rate, tau, 1e5, /day" while `modelLund.m:241` holds `OsmosisRate = 1.00E-07`
+  and `simulate.m:557` DIVIDES by it, so tau is a relaxation TIME. Now "Osmosis relaxation
+  time, 1e-7 d". zeta_0's unit m^2 -> m^2/day (dimensional analysis on `simulate.m:749`).
+  Temperature row now gives both arms, 292/276 K. H-bar relabelled "minimum supernatant
+  height" per `model.tex:4`.
+- *Table 3 (attachment).* SandAttachmentFactor set to 0.06 on Jaime's decision, from
+  `documents/{Hori2010,Kolari2003,Bernstein2014}`: adhesion to bare mineral is non-specific and
+  opposed by a several-hundred-kT barrier in a sand column, adhesion to a colony runs through
+  specific adhesins and EPS. b_M is now the base 5.47e2 and b_sand = 3.282e1. The published
+  table had these INVERTED. Marked `\notsimulated` (red) — nothing has been run at 0.06.
+- *Table 4 (ecological).* `f_PHO_dark` 0.01 -> 0 (the preset and `probeChain.m:100` both zero
+  it). `K_hyd` 2.00e-5 -> 0.1 with the spurious per-m^3 dropped: Wolf2007's own table gives
+  "K_S,h,X = 0.1 kg COD/kg COD", the preset holds `dictionary("POM/HET", 0.1)`, and
+  `simulate.m:461` forms a dimensionless quotient. Four citations corrected where the cited
+  paper's value is the one the working set OVERRODE (K^DOM_HET, K^HPO4_PHO) or was simply the
+  wrong paper (d_PHO, mu_PHO). `I_opt` was changed to 1 and then REVERTED to 1.814e-2: the
+  solver uses only the ratio, so the table should carry a real citable irradiance.
+
+**`figAtten` added to `recreateFigsManriquez2026.m`** (key `"atten"`). `light_attenuation_depth`
+was an orphan asset with no generator; it now builds a real `SandFilter` and reads its own
+`LightAttenuationEtaWater`/`EtaSand` getters, so the curve cannot drift from the solver.
+`figLight` corrected: the published summer curve and the third "Working set" line were removed,
+leaving the two curves the simulations actually run, with the axis relabelled
+`I(t)/I_opt`. Both panels of Figure 4 installed.
+
+**E17 — the SandBiomass bracket (cosmos 3572363).** s = 0.06 and s = 6.0 at 20 d, bracketing
+E14's 0.1/0.3/1.0. At matched horizon: phi_b max 0.0549 (s=0.06) against 0.3300 (s=1.0), top-2
+cm share 4.7 % against 19.5 %, and 62.8 % of the biofilm below 25 cm. Monotone in s across two
+decades, so s = 1 is not near a turning point. **No Schmutzdecke survives at s = 0.06**, so the
+90 d production pair at that value was deliberately NOT submitted, and Table 3's red 0.06
+cannot be cleared by re-running.
+
+**E18 — the Figure 11 truncation check (cosmos 3571650 arm 4).** `exp3` at half MaxDt
+(2.5e-5): the 2.9-log crossing does not move by even one frame (33.4332 d at both steps,
+frame spacing 0.0208 d), and the two runs agree to max |dL| = 1.233e-5 log. E15's crossing
+times reproduce under the new presets, so the truncation recommendation stands — BUT the check
+does not discriminate. A curve reproduced to 1e-5 log at half the step is converged, not
+truncation-limited. The 2.9 log is a marker BUDGET-CLOSURE bound, a cap on claimable removal,
+not a noise floor; the caption must say so. The discriminating test is the P1 budget protocol
+on the constant-feed configuration, not attempted.
+
+**OAT re-run submitted under the new presets** (3572414/15/16, 29 tasks each). Two corrections
+were needed first: `logOatCampaign.m` hard-coded its nominals at the pre-b1fcd03 values
+(`mu_HET = 2.0` line 358, `attenuation_P = 0.094` line 379), which would have perturbed around
+the wrong point and silently moved the baseline; and the mature anchor was moved from
+`chain_fld2x_lit_leg6` (old presets) to `chain_prod_lit_p5_leg6`. Also found: `maskOatMeasures`
+writes to a HARDCODED `<resultsDir>/masked/measures.csv`, which is the source file of the
+INSTALLED Figure 16 — running it per scenario unguarded would have destroyed it.
+
+**35 figures regenerated under the new presets and installed** in `manuscripts/AWR-SSF/figures/`,
+each backed up first. Figure 9 includes the `.png` twins, not the `.pdf`; both were updated, so
+the provenance defect found in the afternoon figure audit (the five 2-D panels predated the
+presets they illustrate) is closed.
+
+**The attachment split refactor is PARKED, not abandoned.** `AttachmentMatrix` and
+`AttachmentSand` as two independent used rates, `SandAttachmentFactor` removed as a property and
+surviving only as a preset-side deduction. It was written, proven behaviour-preserving
+(bit-identical probe, sum 7492.4009398777835 to 17 digits) and then reverted on Jaime's
+instruction to keep revision week on the figures. The complete change is
+`.claude/plans/2026-09-03-attachment-split.patch`; the plan file carries STATUS: PARKED and the
+verification numbers so it need not be redone.
+
+### Two errors of mine, recorded so they are not repeated
+
+Both had the same cause: trusting an aggregate `rec` field without reading its definition.
+
+1. **O2 "across the sand bed".** I marked three manuscript sentences as unsupported because O2
+   never exceeds the influent. That is the wrong quantity. The claim is about the rise ACROSS
+   THE BED and it is real: `chain_prod_lit_p5_leg3`, z = 0 to outlet, 5.6351e-3 -> 6.0614e-3
+   (+7.6 %); `chain_prod_dark_p5_leg3` FALLS, 6.2888e-3 -> 6.1182e-3 (-2.7 %). The rise
+   reverses without light, so the phototroph attribution holds too. Oxygen is consumed in the
+   supernatant (9.10e-3 -> 5.64e-3), which is what makes the filter a net sink overall.
+   Also: `rec.effO2` is NOT monotone, it rises on 149 of 240 steps.
+2. **`rec.supFrac = 0` does not mean "no biofilm above the sand".** `probeChain.m:250` sets
+   `bed = z >= -delta`, so the roughness band -5 mm < z < 0, which carries all of it, is
+   counted as bed. Measured at 30 d: phi_b 0.196 lit against 0.131 dark at z = -2 mm, band
+   integrals 3.216e-4 against 1.773e-4 (+81 %), against +1.3 % in the bed proper. The
+   manuscript's "mostly in the supernatant water region" is corroborated; the +3.1 % aggregate
+   I quoted averages the effect away.
+
+### Plan for next session
+
+1. Fetch and read the OAT results (3572414/15/16). Stage each scenario into its own directory
+   with a `scenario` column — do NOT call the documented `plotOatTornado("analysis/results/oat")`
+   form, which globs all three scenarios and keeps the alphabetically first. Then rebuild
+   Figure 16, the last old-preset figure.
+2. Fetch `proddark` legs 6-9 when 3571649 finishes and `sb60` leg 2 from 3572363_1.
+3. Decide the temperature law (see risks) — it is the highest-value single fix in the draft.
+4. Decide alpha_s. 0.06 is in Table 3 in red and cannot be cleared by re-running.
+5. Optionally resume the attachment split from the parked patch.
+
+### Open questions / risks
+
+- **The manuscript's temperature law is not the one that ran.** `ecomodel.tex:88-92` print
+  theta^(T/293 - 1); `computeRate.m:29` runs theta^(T - T_nom). At 3 C with theta = 1.0725
+  these are 0.996 and 0.304. As printed the seasonal correction is a 0.4 % effect, as run 70 %,
+  so the equations cannot produce `fig:seasons-results`. The code comment at
+  `computeRate.m:20-26` already calls the manuscript form a typo. Same display: mu^PHO carries
+  E^PHO_{.,d} and d^HET carries E^HET_{.,mu}, and `ecomodel.tex:96` lists both growth theta
+  factors twice and neither death factor.
+- **`pathogen.tex:17` describes a model that never ran.** "we set b^att,PAT_f = 0" would remove
+  ALL flowing attachment of the marker; the code zeroes only the bare-sand weight
+  (`pathogenModel.m:94`) and keeps the eps*phi_b term. `sensitivity.tex:98-99` states the code's
+  version, so the paper contradicts itself. Commit `a5db304` fixed sensitivity.tex and never
+  propagated.
+- **The appendix states a grid criterion the runs violate.** `main.tex:103` recommends
+  dz < sqrt(kappa); the working set has sqrt(kappa) = 1.000 mm and dz = 1.998 mm, violated by
+  exactly 2.00 on every production chain. sqrt(kappa) is the interface width that sets the
+  sharp phi_b spike Figures 5-7 display.
+- **Figure 16's scenario provenance is unrecoverable.** `analysis/results/oat/masked/measures.csv`
+  has no scenario column. `sensitivity.tex:69` gives the leader as 0.49/0.49/0.35 by scenario
+  and the file holds 0.4883, so it is startup or pulse and nothing says which.
+- **`testPathogen` fails at HEAD** (PAT residual, invariance 4.513e-01) and has nothing to do
+  with tonight's work.
+- Still running at the close: OAT 3572414/15/16 (87 tasks), `proddark` 3571649 (leg 6 of 9),
+  `sandbio` 3572363_1 (`sb60` leg 2).
