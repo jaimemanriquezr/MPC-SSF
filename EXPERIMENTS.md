@@ -1556,6 +1556,46 @@ figure changes shape under the new parameters, and any discussion text written a
 sub-surface maximum must be revisited.
 
 
+## CORRECTION to E12 and E16 (2026-09-03): the bulge MOVES, it is not destroyed
+
+The bulge test used in E12 and E16 took the GLOBAL maximum of phi_b over z in (0.001, 0.30] and
+called a bulge present when that maximum sat below the surface. That is the wrong test: the
+bulge is an INTERIOR LOCAL maximum, and a profile can carry one while its global maximum is at
+the surface. Re-tested with proper local-maximum detection (interior sign change of the
+gradient, prominence measured against the dip before it), winter:
+
+| case | local max z | phi_b there | prominence |
+|---|---|---|---|
+| OLD presets, HPO4 = 0, 60 d | **0.238** | 0.1198 | 0.0096 |
+| OLD presets, HPO4 = 5.0e-6, 60 d | 0.088 | 0.1808 | 0.0166 |
+| NEW presets, HPO4 = 0, 60 d | 0.092 | 0.1885 | 0.0354 |
+| **NEW presets, HPO4 = 5.0e-6, 60 d** | **none** | -- | -- |
+| OLD presets, HPO4 = 5.0e-6, 90 d | 0.084 | 0.1843 | 0.0198 |
+| NEW presets, HPO4 = 0, 90 d | 0.088 | 0.1928 | 0.0396 |
+| **NEW presets, HPO4 = 5.0e-6, 90 d** | **none** | -- | -- |
+
+**Three corrections follow.**
+
+1. **E12's headline is wrong.** Removing the influent phosphate does NOT destroy the bulge: it
+   moves it from 8.8 cm to 23.8 cm and weakens it (prominence 0.0166 -> 0.0096). The probe
+   3565542 result stands as data; the interpretation does not.
+2. **E16's headline is wrong in the same way.** The new presets do not eliminate the bulge in
+   general. Exactly ONE of the four combinations is monotone: new presets WITH phosphate.
+3. **There is no horizon confound after all**, and the missing cell is not needed. The 60 d row
+   is complete and the pattern is identical at 60 and 90 d, so the earlier worry that the
+   inversion might be a horizon artefact is settled: it is not.
+
+**The coherent reading.** Phosphate limitation sets WHERE the net-growth maximum sits, because
+the bulge lies at the HPO4/DOM crossover. Less phosphate pushes that crossover deeper, so the
+bulge moves down and flattens. A faster heterotroph (mu_HET 4.8) lets the surface win outright,
+but only when phosphate is available there; with HPO4 = 0 the surface stays limited and the
+bulge returns, stronger than under the old presets (prominence 0.0396 vs 0.0198).
+
+Figure: `analysis/results/figures/winter_bulge_2x2.png`.
+Script: `analysis/prototypes/plot_winter_bulge_20260903.m`.
+All seven files Flag OK, N = 500, T = 3 C, rows = 1002.
+
+
 ## Staged (not yet accepted)
 
 | job | script | what | submitted | ETA |
