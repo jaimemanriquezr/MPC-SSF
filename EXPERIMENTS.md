@@ -1471,6 +1471,30 @@ Profile:
 **The sub-surface bulge is gone, not merely overtaken**: there is no local minimum anywhere in
 0.005-0.30 m under the new presets. The profile peaks at 1 cm and declines monotonically.
 
+**CORRECTION, added once all four production arms finished.** That statement is true only at
+HPO4_in = 5.0e-6. The full 2x2 at 90 d under the new presets:
+
+| new presets, 90 d | areal | phi_b max | top 2 cm | argmax z |
+|---|---|---|---|---|
+| summer HPO4 = 0 | 0.2201 | 0.2917 | 17.9 % | 0.002 |
+| summer HPO4 = 5.0e-6 | 0.2204 | 0.3592 | 18.2 % | 0.004 |
+| **winter HPO4 = 0** | 0.6797 | 0.2720 | 5.9 % | **0.088 (BULGE)** |
+| winter HPO4 = 5.0e-6 | 0.6827 | 0.4286 | 9.1 % | 0.004 |
+
+**The winter bulge survives at HPO4 = 0.** So the new parameters do not eliminate it; they
+eliminate it only when external phosphate is supplied. mu_HET and influent phosphate INTERACT,
+and the sign of the phosphate effect on the bulge is opposite to what E12 measured under the
+old presets.
+
+**Confound, stated because it prevents a clean claim.** E12's phosphate arms were compared at
+60 d under the OLD presets; this 2x2 is 90 d under the NEW ones, so horizon and presets differ
+together. The observation stands -- at 90 d with mu_HET = 4.8, HPO4 = 0 gives a bulge and
+5.0e-6 does not -- but attributing the inversion to an interaction rather than to the extra
+30 days requires the missing cells: old presets at 90 d with HPO4 = 0, or new presets at 60 d.
+Neither has been run.
+
+Summer shows no bulge at either phosphate value, so this is a winter-only phenomenon.
+
 Total areal biomass and community composition are unchanged (+0.9 %, +0.3 pp). Biofilm in the
 top 10 cm rises about 43 %, so the biomass is REDISTRIBUTED UPWARD rather than increased --
 consistent with E12, where the mu_HET effect showed up in the peak (+20-22 %) and barely in the
