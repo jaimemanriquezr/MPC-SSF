@@ -1312,3 +1312,101 @@ non-recreated pathogen figures (LowInactivation ×3, pat-scraping); reconcile
 tab:general/eco-parameters with the working-set values the new figures actually
 ran at (prepare the diff for Jaime); Jaime's prose pass (R2.3 list, captions,
 discussion bullets in reports/revision-brief-2026-09-01.pdf); co-author email.
+
+## 2026-09-03
+
+### What we accomplished
+
+Overnight continuation of the 2026-09-02 revision session. Branch `main-claude`.
+
+**Parameters corrected against Tenore2021, and shown safe.** `b1fcd03` set mu_HET 2.0 -> 4.8
+(Tenore Table 1 mu_max,2; the manuscript's 1.81e-2 was that paper's OPTIMUM LIGHT INTENSITY,
+mis-transcribed) and nu_P 0.094 -> 52. `2ff337e` amended the nu_P reasoning after measurement:
+sand attenuation (eta = 12 at 1 cm) swamps biofilm self-shading, so nu_P moves biomass 0.7 %,
+not qualitatively. `990ec80` added an `Attenuation` option so old presets can be pinned under
+today's code; `9c637bf` added `SandBiomass` the same way.
+
+**Verification runs (all cosmos, all exit 0:0).**
+- `72454d1` E12: 2x2 mu_HET x nu_P, 30 d. mu_HET effect DECAYS 5.2 / 2.2 / 1.8 % at 10/20/30 d;
+  no interaction. Growth is substrate-limited, so mu_HET sets the approach rate, not the
+  capacity.
+- `2aa7eb4` phosphate probe control reproduces `chain_fld2x_winter_leg6` to 4 s.f. -- third
+  independent confirmation that `ee0e4d3` was behaviour-preserving under pinned presets.
+- `00abad1` E13: Schijven2013's 0.6-1.6 log scraping loss is NOT reproduced at any marker sand
+  factor; dL <= 0.02 log.
+- `fc0f552` + `3664555` E14: the biomass-sand-factor hypothesis is FALSIFIED and backwards --
+  lowering the factor spreads biofilm DEEPER. Bare sand is the seed surface that creates the
+  Schmutzdecke. dL is proportional to the top-2 cm activity share.
+- `e141ab0` + `51fc622` E15: extending Figure 11 to 60 d carries no information; all four arms
+  cross the 2.9 log resolution bound within 1.4 d of the feed ending, so the PUBLISHED 37 d
+  panels are already mostly past resolution.
+- `af91376` + `8784b2e` ... `43ad31f` E16: production 90 d chains under the new presets.
+  SUMMER is unchanged (profile within 0-4 % at every depth); only winter moves.
+
+**Structural results.** E13+E14 together: the model cannot produce large removal AND large
+scrape sensitivity, because sand-mediated removal is scrape-insensitive and biofilm-mediated
+removal is capped by eps*phi_b. The likely missing mechanism is straining, which this model
+does not represent.
+
+**Decisions recorded.** `48bf40a`: no nitrification and no phosphate sorption, so NH4 and HPO4
+are nutrient pools only and their effluent values are not predictions. Backed by
+`documents/Trikkanad2025.pdf` (ACS EST Water 2025, 5, 6961-6969), which reports NH4 removed
+completely within 45 cm and PO4 reduced to ultralow levels, at full-scale influent
+concentrations comparable to ours.
+
+**Self-corrections, all recorded rather than quietly fixed.** `84b0cab`: every figure logged as
+phi_b was the PARTICULATE volume fraction, 100x too small (biofilm is 99 % water at beta =
+0.99) -- caught by an agent checking a "verified fact" I had given it. `a5db304`: sensitivity.tex
+claimed the marker's BIOFILM attachment was zero; it is the BARE-SAND weight that is zero.
+`31461ad`: the bulge test used the GLOBAL maximum, so profiles with an interior local maximum
+below their surface value read as "no bulge" -- E12's "removing phosphate destroys the bulge"
+and E16's "the new presets eliminate it" are both wrong. Re-tested with local-maximum
+detection: phosphate MOVES the bulge (8.8 -> 23.8 cm) and only NEW presets WITH phosphate is
+monotone.
+
+**Manuscript (`revision` branch, AWR-SSF).** `2c12601` new sensitivity.tex placeholder on the
+OAT campaign plus the last undefined reference cleared -- main.tex now builds with ZERO
+undefined references and zero undefined citations. `d8b658f` 29 parameter-table values matched
+to the working set. `0f622b1` names the as-simulated leader and the `setParticles` applier
+caveat.
+
+**Verification status.** Every number in E12-E16 was computed from saved `results` objects and
+re-read from the raw records; the preset plumbing (`Attenuation`, `SandBiomass`, `SandPathogen`)
+was verified in MATLAB before submission -- which caught a value-class bug in `SandBiomass`
+that would have made three 65-minute chains silently identical. The 2.9 log resolution bound is
+NOT verified to transfer from the pulse scenario to a constant feed; the Figure 11 truncation
+recommendation rests on it.
+
+### Plan for next session
+
+1. Run the Figure 11 truncation check: one arm at half `MaxDt`, see whether the 2.9 log crossing
+   time moves. If it does not, the bound transfers and Figure 11 must be truncated at 2-3.4 d
+   rather than 7; if it moves, the bound is configuration-specific.
+2. Decide the influent phosphate value. It now changes what `fig:seasons-results` SHOWS, not just
+   its amplitude: HPO4 = 5.0e-6 gives a monotone winter profile, HPO4 = 0 gives one with a
+   sub-surface maximum at 8.8 cm.
+3. Manuscript one-liners, all Jaime's call: uncomment `\input{sensitivity.tex}` at `main.tex:56`;
+   `git add` the five outflow PNGs (the build breaks for anyone else without them); copy
+   `oat_ranking_rows_masked.tex` and `fig_oat_tornado_masked.pdf` under the manuscript's
+   basenames -- NOT the unmasked pair, which is flowstep-only.
+4. Rewrite Eq. `R-att-new` and the `tab:rhs-parameters` attachment rows to match the code: ONE
+   rate constant with a sand factor, per Diehl2025, not two independent rates.
+5. Caveat or drop the NH4 and HPO4 panels in `fig:1d-outflow-liquids` and `fig:2d-plots`.
+
+### Open questions / risks
+
+- **DOM at -89 % is unexplained.** Trikkanad2025 reports ~15-20 % net DOC removal with a RELEASE
+  at 20-60 cm that we do not reproduce. Not covered by the nitrification decision.
+- **The influent biomass may be too high.** HET 3.0e-4 + PHO 1.0e-3 exceeds the influent DOM, so
+  the largest nutrient input is dying cells. Worth checking against Campos2006b directly.
+- **`b^att,PAT_M` = 1.32e3 in the table vs 547 in the code**, and `AttachmentMatrix` is assigned
+  in the presets but never read by the solver.
+- **`rec.supInt` and `rec.supFrac` are identically zero** on every chain: `legMetrics` puts the
+  supernatant at z < -5 mm while all the biofilm above the sand sits inside the roughness band.
+- **The supernatant biofilm is sub-grid** (h/dz = 0.27-0.43, converging from below, still 41 %
+  low at N = 1000), so height numbers are lower bounds of unknown tightness.
+- **`readOatMeasures` keeps only the alphabetically-first scenario**, so the unmasked
+  `oat_ranking_rows.tex` and `fig_oat_tornado.pdf` are flowstep-only despite generic names.
+- **In flight, NOT mine, do not commit**: `src/@Results/Results.m` (getVolumeFractions call
+  signature) and `src/presets/modelPathogen.m` (deleted in the working tree). In AWR-SSF:
+  `main.tex`, `model.tex`, `pathogen.tex`, `results.tex` and the five untracked PNGs.
