@@ -1482,6 +1482,27 @@ the net specific growth rate peaked at the HPO4/DOM crossover around 8 cm. At mu
 heterotrophs grow 2.4x faster and win at the surface despite that competition, so the crossover
 no longer produces a maximum.
 
+### SUMMER is unchanged; only winter moves
+
+3565918 arm 1 (`prod_lit_p5`, 19 C, HPO4 5.0e-6, 90 d) exit 0:0:
+
+| summer 90 d | areal | phi_b max | top 2 cm | HET % | PHO % |
+|---|---|---|---|---|---|
+| OLD presets | 0.2198 | 0.3239 | 17.9 % | 65.9 % | 33.0 % |
+| NEW presets | 0.2204 | 0.3592 | 18.2 % | 66.0 % | 32.9 % |
+
+The profile is identical to within 0-4 % at EVERY depth (new/old ratio 0.98, 1.00, 1.00, 1.00,
+0.99, 0.99, 0.97, 0.96 from 2 mm to 1 m). Only the surface peak moves, +11 %.
+
+**So the summer figures -- most of the manuscript -- barely change under the corrected
+parameters. Winter changes qualitatively; summer does not change at all.**
+
+That asymmetry follows from E12. At 19 C the system is substrate-limited, so 2.4x the
+heterotroph growth rate buys almost nothing. At 3 C the temperature correction slows every
+rate by about 3x, pushing the system toward kinetics-limitation where mu_HET does matter. The
+same measurement that said the mu_HET correction was safe for mature summer filters predicts
+that it would NOT be safe for cold ones, and that is what happened.
+
 ### The phosphate choice under the corrected parameters
 
 Both winter arms complete (3565918 arms 2 and 3, exit 0:0), 90 d:
