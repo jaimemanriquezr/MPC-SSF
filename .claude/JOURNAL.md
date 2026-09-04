@@ -1544,3 +1544,112 @@ Both had the same cause: trusting an aggregate `rec` field without reading its d
   with tonight's work.
 - Still running at the close: OAT 3572414/15/16 (87 tasks), `proddark` 3571649 (leg 6 of 9),
   `sandbio` 3572363_1 (`sb60` leg 2).
+
+## 2026-09-04 — the attachment geometry, and a run that separates the two pathways
+
+Short morning session following the overnight block. No commits beyond this journal.
+
+### What we accomplished
+
+**All nine overnight jobs verified COMPLETED, none killed at the wall** (`sacct`, exit 0:0
+throughout): OAT 3572414 (29 tasks, 1:07:49), 3572415 (29, 2:40:38), 3572416 (29, 2:38:08);
+`proddark` 3571649 (10:16:17 — the sbatch header's "~5 h" estimate was wrong by half);
+`sandbio` 3572363 (2 arms, 1:53:53). So Figure 16 and the 90 d covered arm are both unblocked;
+neither has been fetched or plotted yet.
+
+**`analysis/plotSandBio.m`** (new) — the E17 bracket as a two-panel figure,
+`analysis/results/figures/sandbio_bracket_20d.png`: phi_b profiles for s = 0.06/0.1/0.3/1/6 at
+20 d, plus stacked depth shares. Numbers on the plot reproduce E17 exactly.
+
+**The attachment geometry was traced end to end and is CORRECT.** `computePorosity` is a
+function of z ONLY (`(eps0-1)/delta*z + eps0`, bounded to [eps0, 1]), so `porosityCenters` is
+the geometric sand porosity — 1 in the supernatant, 0.4 in the packed bed — and does not depend
+on biofilm. Jaime confirmed this and supplied the model it implements: a particle crosses a
+normalized space of size 1, of which `1 - eps` is sand grain, `eps*phi_b` is biofilm and
+`eps*(1 - phi_b)` is free water. Those three partition the unit space exactly, and
+`attachmentFlowingFactor = (1 - porosityCenters) + porosityCenters.*phiBiofilm`
+(`simulate.m:467`) is the attachable sum, with `SandAttachmentFactor` scaling ONLY the sand
+cross-section (`simulate.m:521`). The enclosed pathway (`attE`, `simulate.m:516`) carries no
+SAF, correctly — there is no bare sand inside a biofilm.
+
+**Quantified why E17 came out as it did.** With eps = 0.4 the bare-sand term carries
+99.7 % of the attachment weight at seeding (phi_b = 0.005) and still 82 % in a mature
+Schmutzdecke (phi_b = 0.33). So `SandBiomass = 0.06` does not redirect capture to the biofilm,
+it removes capture: 15.8x less total attachment at seeding, easing to 4.4x once film exists.
+That is the mechanism behind E17's collapse, and it is simpler than the "nothing to prefer at
+t = 0" story told last night.
+
+**`att_M` values read from the instantiated model, not the source:** HET 547, PHO 547,
+PAT 547, POM 0 — `AttachmentMatrix` and `AttachmentSand` equal on every particle, and
+`SandBiomass`/`SandPathogen` move only the SAF column, never the rates. The manuscript's
+`b^att,PAT_M = 1.32e3` (`tab:rhs-parameters`) matches nothing in the code; 1.32e3/547 = 2.41,
+which is no factor in the model. It should read 5.47e2.
+
+**`AttachScale` option added to `analysis/probes/probeChain.m`** (recorded in
+`rec.attachScale`; backup of the previous file in the session scratchpad). It multiplies
+`AttachmentSand` and `AttachmentMatrix` on every particle with a nonzero rate. Because
+`simulate.m:146` uses `AttachmentSand` as the base rate for BOTH shares of the flowing weight,
+the option alone scales sand and biofilm together; the invariant pairing is
+`b -> k*b` with `SAF -> SAF/k`.
+
+**Job 3573373 `attM100` submitted** (`slurm/attach_matrix100.sbatch`, new): `AttachScale=100`,
+`SandBiomass=0.01`, 20 d, otherwise identical to E17's `sb10` control. Biofilm attachment 100x
+with bare-sand attachment held fixed. **Invariance verified BEFORE submission**, HET at
+eps = 0.4: baseline b = 547, SAF = 1 gives sand weight `(1-eps)*SAF*b` = 328.2 and biofilm
+coefficient `eps*b` = 218.8; the run has b = 54700, SAF = 0.01, sand weight 328.2 (identical to
+six figures) and biofilm coefficient 21880 (exactly 100x). PAT keeps `SandPathogen = 0`, so
+only its biofilm attachment rises. RUNNING at 1:42 of an 8 h wall at the time of writing;
+expected stiffer, since `attachmentRates` = 5.47e4 makes the CFL term ~4.0e4/d and the step
+CFL-bound at ~2.5e-5 d rather than MaxDt-bound at 5e-5.
+
+### A framing I withdrew
+
+Yesterday I called it a "modelling limitation" that `(1 - eps)` does not shrink as biofilm
+accumulates — as if bare sand ought to be occluded by the growing film. In the volumetric model
+Jaime actually uses that is not a defect: biofilm occupies pore space, it is not a coating on
+the grain, so the grain's cross-section is `1 - eps` at any phi_b. The mismatch with
+Kolari2003/Bernstein2014, which describe surface coverage, sits at the level of the abstraction
+chosen, not in the implementation. Stated as a limitation of the code it was wrong.
+
+### Plan for next session
+
+1. Read `attM100` when 3573373 lands and score it against `sb10` leg 2 (phi_b max 0.3300,
+   top 2 cm 19.5 %, 2-25 cm 70.4 %, >25 cm 10.1 %) with `analysis/scoreSandBio.m`. The question
+   is whether a Schmutzdecke survives, and strengthens, when the biofilm pathway is dominant.
+2. Fetch the three OAT campaigns and rebuild Figure 16 — stage each scenario into its own
+   directory with a `scenario` column; do NOT call `plotOatTornado("analysis/results/oat")`,
+   which globs all three and keeps the alphabetically first.
+3. Fetch `proddark` legs 4-9 and redraw the 90 d covered arm.
+4. Fix `b^att,PAT_M` 1.32e3 -> 5.47e2 in `tab:rhs-parameters` (blue, `\revise{}` — 547 is what
+   every run used).
+5. Optional, proposed but NOT submitted: summer/winter pathogen removal. `probePulse` from
+   `chain_prod_win_p5_leg6` against `chain_prod_lit_p5_leg6`, each filter grown at its own
+   temperature. Never done properly — the two existing "cold" runs
+   (`pulse_e4_{lit,dark}_cold`) are cold-shocks of a 19 C-grown filter, which `probePulse.m:29`
+   warns against. Free preview from those: cold kinetics cost a factor 2.2 in log removal at
+   fixed biofilm (final L 10.73 at 19 C against 4.82 at 3 C), while the winter chain carries
+   3.07x the biofilm; the two effects oppose and are the same order, so the sign is genuinely
+   open. Both L values sit far above the 2.9 log budget-closure ceiling, so any ordering would
+   have to be demonstrated inside the resolvable range.
+
+### Open questions / risks
+
+- **UNRESOLVED AND BLOCKING THE ABOVE: what is `phi_b` a fraction OF?** Jaime's diagram and his
+  first description both say the free space — "of the free space, phi_b is the fraction
+  corresponding to the biofilm, so in the normalized space it occupies eps*phi_b" — which is
+  what `simulate.m:467` implements. He then wrote "Not biofilm. Sorry. I meant just phi_b",
+  and the correction was not resolved before the session ended. Two readings: (a) terminology
+  only, the middle region is the volume fraction phi_b and should not be called "biofilm";
+  (b) phi_b is already a fraction of the TOTAL normalized space, in which case
+  `porosityCenters.*phiBiofilm` carries an extra eps it should not, and every attachment
+  weight in every run to date is wrong by that factor. Reading (a) is far more likely -- the
+  diagram is explicit, and `scoreRun`/`arealSeries` independently weight phi_b by eps -- but
+  (b) has not been excluded and it would invalidate E14, E17 and 3573373. **Ask before doing
+  anything that depends on it.**
+- **`b^att,PAT_M` = 1.32e3 in the manuscript against 547 in the code**, still unfixed.
+- The manuscript's temperature law, the `pathogen.tex:17` contradiction, the
+  `dz < sqrt(kappa)` violation and Figure 16's unrecoverable scenario provenance all stand
+  from yesterday; see the 2026-09-03 entries.
+- `analysis/probes/probeChain.m` is now modified (the `AttachScale` option) and job 3573373 is
+  running against the deployed copy. Do not redeploy that file until it finishes.
+- `testPathogen` still fails at HEAD, pre-existing.
