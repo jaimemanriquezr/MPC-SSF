@@ -1,0 +1,35 @@
+{
+    "name": "mpcssf",
+    "version": "0.1.0",
+    "id": "7d207e9f-6f97-4277-b324-7556ccf3c6e2",
+    "formerNames": [],
+    "displayName": "MPC-SSF",
+    "summary": "Multiphase continuum simulations of slow sand filtration (1-D), with biofilm growth and pathogen removal.",
+    "tags": [],
+    "readme": "README.md",
+    "provider": {
+        "name": "Jaime Manríquez",
+        "organization": "",
+        "email": "",
+        "url": ""
+    },
+    "folders": [
+        {
+            "path": "src",
+            "languages": [
+                "matlab"
+            ]
+        }
+    ],
+    "dependencies": [],
+    "releaseCompatibility": ">=26.2.*",
+    "supportedPlatforms": [
+        {
+            "platform": "any",
+            "architectures": [
+                "any"
+            ]
+        }
+    ],
+    "schemaVersion": "1.2.0"
+}

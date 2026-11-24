@@ -1,0 +1,180 @@
+classdef SandFilter
+    properties
+        Height double
+        Depth double
+
+        SandPorosity double
+        SandRoughness double
+
+        InflowVelocity double
+
+        Temperature double
+        LightIrradiation function_handle
+        LightAttenuationCoeffWater double
+        LightAttenuationCoeffSand double
+
+        GridPoints
+    end
+    
+    properties (Dependent, Hidden)
+        GridSize
+        GridZero
+        CellWidths
+        CenterSpacings
+
+        LightAttenuationEtaWater
+        LightAttenuationEtaSand
+    end       
+
+    methods
+        function obj = SandFilter(input)
+            arguments
+                input.Height {mustBeNumeric, mustBeScalarOrEmpty} = 1;
+                input.Depth {mustBeNumeric, mustBeScalarOrEmpty} = 1;
+                input.SandPorosity {mustBeNumeric, mustBeScalarOrEmpty} = .4;
+                input.SandRoughness {mustBeNumeric, mustBeScalarOrEmpty} = 5e-3;
+                input.InflowVelocity (1,1) {mustBeNumeric} = 0.3 * 24;
+                input.Temperature (1,1) {mustBeNumeric} = 15;   % degC (computeRate uses Celsius scale)
+                input.LightIrradiation = @(t) 0.8 * max(sin(2*pi*(t - 13/48)) + 31/50, 0) / (1 + 31/50);
+                input.LightAttenuationCoeffWater = 0.32;
+                input.LightAttenuationCoeffSand = 1500;
+                input.GridPoints = [];
+            end
+
+            for field = string(fieldnames(input).')
+                obj.(field) = input.(field);
+            end
+        end
+        
+        function dz = get.GridSize(obj)
+            % Uniform cell width. mean(diff(...)) telescopes to
+            % (last - first)/N, so on a NON-uniform mesh it returns the average
+            % and every one of its ~60 call sites keeps running on a wrong
+            % number. Fail loudly instead; a graded mesh must use CellWidths.
+            widths = diff(obj.GridPoints.Boundaries);
+            dz = mean(widths);
+            if ~isempty(widths) && max(abs(widths - dz)) > 1e-12*dz
+                error("SandFilter:nonUniformGrid", ...
+                    "GridSize is only defined on a uniform mesh (spread %.3g of mean %.3g). " + ...
+                    "Use CellWidths for a graded mesh.", max(abs(widths - dz)), dz);
+            end
+        end
+
+        function w = get.CellWidths(obj)
+            % Per-cell widths, valid on any mesh. N x 1.
+            w = diff(obj.GridPoints.Boundaries);
+        end
+
+        function h = get.CenterSpacings(obj)
+            % Centre-to-centre distances, i.e. the denominators for face
+            % gradients. (N-1) x 1. Equal to CellWidths only on a uniform mesh --
+            % conflating the two is a silent O(1) error on a graded one.
+            h = diff(obj.GridPoints.Centers);
+        end
+
+        function n0 = get.GridZero(obj)
+            % Index of the last cell at or above the sand surface. addGridPoints
+            % guarantees a cell CENTRE sits exactly at z = 0 and no face does.
+            %
+            % Was: find(abs(Centers) < GridSize/2), with no ",1" -- which returns
+            % a VECTOR whenever more than one centre falls within half a mean
+            % width of zero, as happens on any mesh refined near z = 0. That
+            % vector then sizes the Cahn-Hilliard system (simulate.m:97-101).
+            n0 = find(obj.GridPoints.Boundaries >= 0, 1) - 1;
+            if isempty(n0) || n0 < 1
+                error("SandFilter:noGridZero", ...
+                    "no cell boundary at or below z = 0; check the grid");
+            end
+        end
+
+        function eta = get.LightAttenuationEtaWater(obj)
+            eta = (obj.GridPoints.Centers + obj.Height);
+            eta = obj.LightAttenuationCoeffWater*eta;
+        end
+
+        function eta = get.LightAttenuationEtaSand(obj)
+            eta = zeros(size(obj.GridPoints.Centers));
+            roughIndex = obj.GridPoints.Centers >= -obj.SandRoughness;
+            packedIndex = obj.GridPoints.Centers >= 0;
+            roughIndex(packedIndex) = false;
+
+            etaSandDelta1 = (1 - obj.SandPorosity)*(obj.GridPoints.Centers(roughIndex) + obj.SandRoughness);
+            etaSandDelta2 = (1 + (obj.GridPoints.Centers(roughIndex) - obj.SandRoughness)/(2*obj.SandRoughness));
+            eta(roughIndex) = etaSandDelta1.*etaSandDelta2;
+            eta(packedIndex) = (1 - obj.SandPorosity)*(obj.SandRoughness/2 + obj.GridPoints.Centers(packedIndex));
+
+            eta = obj.LightAttenuationCoeffSand*eta;
+        end
+
+        function obj = set.GridPoints(obj, points)
+            % Accepts EITHER a vector of cell boundaries (the normal path, from
+            % addGridPoints) OR an already-built {Boundaries, Centers} struct.
+            %
+            % The second case is not decorative: load() restores properties by
+            % ASSIGNMENT, so a saved SandFilter feeds this setter its own stored
+            % struct. Without the idempotent branch, points(1:end-1) on a 1x1
+            % struct degenerates and the property comes back EMPTY -- every
+            % SandFilter inside a saved Results silently lost its grid, so z, dz
+            % and n0 were unrecoverable from the results file alone.
+            if isempty(points)
+                obj.GridPoints = struct.empty;
+            elseif isstruct(points) && isfield(points, "Boundaries") && isfield(points, "Centers")
+                obj.GridPoints = points;                 % already canonical
+            else
+                points = points(:);
+                centers = 0.5*(points(1:end-1) + points(2:end));
+                obj.GridPoints = struct("Boundaries", points, "Centers", centers);
+            end
+        end
+        
+        function obj = addGridPoints(obj, intervalNumber)
+            dz = obj.Depth / (intervalNumber + 1/2);
+            lowerGrid = [obj.Depth+dz, obj.Depth:(-dz):(-obj.Height)];
+            if all(abs(lowerGrid) > 1e-16)
+                obj.GridPoints = fliplr(lowerGrid);
+            else % a computational boundary is approximately at z = 0
+                obj = addGridPoints(obj, intervalNumber+1);
+            end
+        end
+        
+        function plot(obj, options)
+            arguments
+                obj mpcssf.SandFilter
+                options.Parent = []   % axes/uiaxes to draw into, or a container; see resolveAxes
+            end
+            axisHandle = mpcssf.internal.resolveAxes(options.Parent);
+            axisHandle.NextPlot = "add";
+
+            H = obj.Height;
+            B = obj.Depth;
+            % plot(axisHandle, [0, 0], [-H, B], LineStyle="-", Color="k", LineWidth=3.0);
+            z = linspace(-H, B, 1e3);
+            plot(axisHandle, obj.computePorosity(z), z, Color="k", LineWidth=3.0);
+            xlim(axisHandle, [0 1.1]);
+            ylabel(axisHandle, "Depth $z$ [m]", Interpreter="latex", FontSize=20);
+            xlabel(axisHandle, "Porosity $\tilde{\varepsilon}(z)$ [-]", Interpreter="latex", FontSize=20);
+            axisHandle.YDir = "reverse";
+            axis(axisHandle, "square");
+        end
+
+        % OVERRIDING FUNCTIONS
+        function is_eq = isequal(self, other)
+            is_eq = true;
+            for field = string(fieldnames(self).')
+                self_field = self.(field);
+                other_field = other.(field);
+
+                if isequal(class(self_field),'function_handle')
+                    self_field = sym(self_field);
+                    other_field = sym(other_field);
+                end
+
+                if ~isequal(self_field, other_field)
+                    is_eq = false;
+                    break;
+                end
+            end
+        end
+
+    end
+end

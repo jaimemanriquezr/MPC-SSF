@@ -1,0 +1,1342 @@
+function results = simulate(obj, options, parameters)
+% SIMULATE  Advance a State through time.
+%
+%   results = simulate(state, ...)                    % production
+%   results = simulate(state, ..., Research=true)     % research paths unlocked
+%
+% ONE implementation. Between 2026-09-05 and 2026-09-22 this lived as two files --
+% simulate.m and a frozen simulateDiagnostic.m -- so that research branches stayed
+% out of the production time loop. That cost ~650 duplicated lines and the fork
+% had begun to lag, so they were reunified; simulateDiagnostic is now a thin
+% forwarder that sets Research=true.
+%
+% Research=false (the default, and what every production caller gets) REFUSES the
+% research scaffolding rather than ignoring it, so a production run cannot
+% silently execute a prototype under another scheme's name:
+%
+%   CohesionScheme    "bailo" (Bailo 2023, semismooth Newton) and "matched" are
+%                     research prototypes; only "shin" is production.
+%   TrackCFL          per-step CFL term accounting and the free-running Solver A
+%                     state that measures it.
+%   PositiveMobility  the max(lambda, 0) clamp. Note the mobility is u(1-u), so
+%                     lambda < 0 requires phi_b outside [0,1]: this guards an
+%                     unphysical state and cannot fire for a valid one.
+%
+% The four diag_* configs of tests/regression/regressionConfigs.m pin the research paths and
+% are what proves this reunification faithful, exactly as they proved the 09-05
+% fork faithful.
+arguments
+    obj  mpcssf.State
+    options mpcssf.SolverOptions = mpcssf.SolverOptions.empty;
+
+    parameters.InflowConcentrations = []
+    parameters.SimulationTime (1,1) {mustBeNumeric} = 1.0;
+    parameters.TimeStep (1,1) = 1E-5;
+    parameters.FrameNumber (1,1) {mustBeNumeric} = 200;
+    parameters.CloggingFraction (1,1) {mustBeNumeric} = .99;
+
+    % ---- SOLVER OPTIONS ------------------------------------------------------
+    % These live on the SolverOptions object, which is the single record of how a
+    % simulation was configured and is returned as results.SolverOptions. They are
+    % also accepted here as name-value pairs and applied by SolverOptions.override.
+    % Defaults are [] so that an unset argument does NOT clobber the object's own
+    % default.
+    parameters.CFLFactor = [];
+    parameters.AdaptiveVelocityFactor = [];
+    parameters.AdaptiveTimeTolerance = [];
+    parameters.AdaptiveInitialTimeStep = [];
+    parameters.AdaptiveMaxTimeStep = [];
+    parameters.UpwindedVelocity = [];
+    parameters.ImplicitOsmosis = [];
+    parameters.ImplicitDispersion = [];
+    parameters.ConvexSplitting = [];
+    parameters.CohesionScheme = [];
+    parameters.CohesionBoundaryConditions = [];
+    parameters.TransferForm = [];
+    parameters.TransferDiffusivity = [];
+    parameters.GrainDiameter = [];
+    parameters.MatThickness = [];
+    % --------------------------------------------------------------------------
+
+
+    % Console output and app hooks. Without a ProgressFcn the stage messages and
+    % "t = ..." per frame are printed; Quiet=true silences all of it. Both hooks
+    % are called once per saved frame (FrameNumber times), never per time step.
+    %   ProgressFcn(t, fraction)  fraction = elapsed share of SimulationTime
+    %   CancelFcn() -> true       stops the run; results.Flag = "CANCELLED"
+    parameters.Quiet (1,1) logical = false;
+    parameters.ProgressFcn = [];
+    parameters.CancelFcn = [];
+
+
+
+    % Renamed from RecordCflBudget on 2026-08-25. Gates the per-step CFL term
+    % accounting (which term binds dt) AND the free-running Solver A diagnostic.
+    % Those two are due to be split: the term sums are NOT recoverable from
+    % Frames, but Steps and the cap-bound fraction already are --
+    % SimulationData.time appends t every step, so numel() and diff() give both
+    % for free with this flag off.
+    % Research=true unlocks the prototype paths below. Production callers never
+    % set it, so they get an error rather than a silent prototype run.
+    parameters.Research (1,1) logical = false;
+    parameters.TrackCFL (1,1) logical = false;
+
+    parameters.PositiveMobility (1,1) logical = false;
+
+
+end
+if isempty(options), options = mpcssf.SolverOptions(); end
+options = options.override(parameters);
+% Normalise the enums once so every comparison below is unambiguous.
+options.CohesionScheme = lower(string(options.CohesionScheme));
+options.CohesionBoundaryConditions = lower(string(options.CohesionBoundaryConditions));
+
+% Production refuses the research scaffolding. Fail here rather than silently
+% running shin under another scheme's name, or quietly ignoring a clamp the
+% caller asked for.
+if ~parameters.Research
+    if options.CohesionScheme ~= "shin"
+        error("simulate:researchScheme", ...
+            "CohesionScheme='%s' is a research prototype; pass Research=true " + ...
+            "(or call simulateDiagnostic). simulate implements 'shin' only.", ...
+            options.CohesionScheme);
+    end
+    if parameters.TrackCFL || parameters.PositiveMobility
+        error("simulate:researchOption", ...
+            "TrackCFL and PositiveMobility are research scaffolding; pass " + ...
+            "Research=true (or call simulateDiagnostic) to use them.");
+    end
+end
+
+progressFcn = parameters.ProgressFcn;
+cancelFcn = parameters.CancelFcn;
+say = ~parameters.Quiet && isempty(progressFcn);   % print stage messages
+if say, disp("Loading parameters..."); end
+filter = obj.SandFilter;
+model = obj.Model;
+
+temperature = filter.Temperature;
+%================= LOADING OPTIONS ONTO VARIABLES ==================%
+simulationTime = parameters.SimulationTime;
+timeStep = parameters.TimeStep;
+numFrames = parameters.FrameNumber;
+
+[quotientK, quotientDenIdx, quotientNumIdx] = model.Reactions.lookupQuotients(model.Components);
+halfSaturationK = model.HalfSaturationConstants;
+listK = permute([halfSaturationK; quotientK], [3 1 2]);
+listOrder = zeros(size(listK));
+listOrder(1, 1:length(model.Components), :) = model.Order;
+
+newlist = cell(2, size(listK, 3));
+for i = 1:size(listK, 3)
+    newlist{1, i} = ~isnan(listK(:, :, i));
+    if any(newlist{1, i})
+        newlist{2, i} = listK(:, newlist{1, i}, i);
+    end
+end
+listK = newlist;
+[listOrder, ~] = ind2sub(size(listOrder, [2 3]), find(listOrder));
+
+if isempty(parameters.InflowConcentrations)
+    inflowConcentrations = zeros(1, length(model.Components));
+elseif isa(parameters.InflowConcentrations, "dictionary")
+    if isa(parameters.InflowConcentrations.keys, "string")
+        inflowConcentrations = lookup(parameters.InflowConcentrations, [model.Components.Name], FallbackValue=0.0);
+    else
+        inflowConcentrations = lookup(parameters.InflowConcentrations, model.Components, FallbackValue=0.0);
+    end
+else
+    inflowConcentrations = parameters.InflowConcentrations;
+end
+
+if ~isa(inflowConcentrations, 'function_handle')
+    inflowConcentrations = inflowConcentrations(:).';
+end
+
+%================= I. SAND FILTER PARAMETERS ====================%
+depthCenters = filter.GridPoints.Centers;
+porosityCenters = computePorosity(filter, depthCenters);
+
+depthBoundaries = filter.GridPoints.Boundaries;
+porosityBoundaries = computePorosity(filter, depthBoundaries);
+
+dz = filter.GridSize;
+n0 = filter.GridZero;
+
+kappaCH0 = model.CohesionSubModel.Kappa;
+[S, DD, D] = getCahnHilliardMatrices(filter, model, options.UpwindedVelocity);
+S = sparse(S.Rows, S.Columns, S.Values, 2*n0, 2*n0);
+DD = sparse(DD.Rows, DD.Columns, DD.Values, 2*n0, 2*n0);
+
+Id = speye(2*n0);
+CH0 = Id - DD;
+% DIRICHLET AT z = 0. The clamped assembly makes the k = n0 face contribute
+% nothing, i.e. ghost u_{n0+1} := u_{n0} (Neumann). Continuity instead sets the
+% ghost to the first bed cell's value, so row n0 of the mu block becomes
+%   mu_{n0} - kappa*(2u_{n0} - u_{n0-1} - u_bed)/dz^2 = Psi'(u_{n0}),
+% i.e. an extra -kappa/dz^2 on the diagonal of block (2,1) (that block is -DD,
+% and the coefficient must go from -kappa/dz^2 to -2kappa/dz^2), and a per-step
+% right-hand side term -kappa*u_bed/dz^2. Matches reports/numerical-method.md
+% :250-262, which writes the mu rhs as (0,...,0, -kappa*u_1^{n+1}/dz^2).
+% The diagonal part is constant, so it is folded in once here rather than per step.
+useDirichletBC = (options.CohesionBoundaryConditions == "dirichlet");
+if useDirichletBC
+    CH0(n0 + n0, n0) = CH0(n0 + n0, n0) - kappaCH0/dz^2;
+end
+
+etaWater = filter.LightAttenuationEtaWater;
+etaSand = filter.LightAttenuationEtaSand;
+
+volumetricFlow = filter.InflowVelocity;
+volumeAvgVelocity = volumetricFlow./porosityBoundaries;
+%========================================================%
+
+%================= II. MODEL PARAMETERS ====================%
+kP = length(model.Particles);
+kL = length(model.Liquids);
+densityP = [model.Particles.Density];
+densityL = [model.Liquids.Density];
+
+attachSandRates   = [model.Particles.AttachmentSand];    % bare-sand pathway [1/day]
+attachMatrixRates = [model.Particles.AttachmentMatrix];  % biofilm/matrix pathway [1/day]
+transportParticleRates = [model.Particles.TransportRate];
+transportLiquidRates = [model.Liquids.TransportRate];
+% Film-form liquid exchange (2026-08-26): grain surface per bulk volume; zero in
+% the supernatant (eps = 1), where the mat is treated as a slab of MatThickness.
+useFilmTransfer = (options.TransferForm == "film");
+grainSurface = 6*(1 - porosityCenters)/options.GrainDiameter;
+alpha = [model.Particles.Dispersivity, model.Liquids.Dispersivity];
+
+beta = model.BiofilmPorosity;
+tau = model.OsmosisRate;
+
+sigmaParticles = model.StoichiometricMatrixParticles;
+sigmaLiquids = model.StoichiometricMatrixLiquids;
+
+dpsi_fun = model.CohesionSubModel.PotentialGradient;
+kappaCH = model.CohesionSubModel.Kappa;
+zeta1CH = model.CohesionSubModel.Zeta1;
+bailoIters = 0; bailoSteps = 0; bailoMaxIt = 0; bailoFail = 0; bailoZero = 0;
+% Psi''(u) = 3u(u - Zeta1); needed by ConvexSplitting in the shin/matched branch.
+dpsi2CH = @(uu) 3*uu.*(uu - zeta1CH);
+% Bailo's discrete operators depend only on n0, dz and S -- all fixed for the run
+% -- so they are built ONCE here. Rebuilding them inside the per-step solve cost
+% 310 us of a 462 us per-step floor at n0 = 501, i.e. 67% of the floor spent
+% reconstructing constant matrices. Measured, not guessed.
+matchedOps = struct.empty;
+if options.CohesionScheme == "matched"
+    n0m = filter.GridZero; dzm = filter.GridSize;
+    epsCm = computePorosity(filter, filter.GridPoints.Centers(1:n0m));
+    epsFm = computePorosity(filter, filter.GridPoints.Boundaries(2:n0m));  % faces 1..n0m-1
+    em1 = ones(n0m-1,1);
+    % face gradient (mu_{i+1}-mu_i)/dz
+    Gm = spdiags([-em1, em1], [0 1], n0m-1, n0m)/dzm;
+    % faces -> cells, porosity weighted: (eps_{i+1/2}F_i - eps_{i-1/2}F_{i-1})/(dz*eps_i)
+    ii = (1:n0m-1)';
+    DivE = sparse([ii; ii+1], [ii; ii], ...
+        [epsFm(:)./(dzm*epsCm(1:n0m-1)); -epsFm(:)./(dzm*epsCm(2:n0m))], ...
+        n0m, n0m-1);
+    matchedOps = struct("G", Gm, "DivE", DivE, "n0", n0m);
+end
+bailoOps = struct.empty;
+if options.CohesionScheme == "bailo"
+    n0b = filter.GridZero; dzb = filter.GridSize;
+    eb = ones(n0b,1); emb = ones(n0b-1,1);
+    Lb = spdiags([eb, -2*eb, eb], -1:1, n0b, n0b);
+    Lb(1,1) = -1; Lb(n0b,n0b) = -1;                % ghosts (2.1i)
+    rrb = (1:n0b-1)';
+    % Analytic Psi''. Psi'(u) = u^2(u - 1.5*Zeta1) is fixed up to Zeta1, so
+    % Psi''(u) = 3u(u - Zeta1). Replaces a two-evaluation finite difference that
+    % also carried its own truncation error.
+    dpsi2 = @(u) 3*u.*(u - zeta1CH);
+    % Verify it against the model's own handle rather than trusting the algebra:
+    % PotentialGradient is rebuilt from Zeta1 in the constructor, and the legacy
+    % .mat presets store a baked handle, so they could in principle disagree.
+    uchk = linspace(1e-3, 0.999, 97)';  hchk = 1e-6;
+    fdchk = (dpsi_fun(uchk + hchk) - dpsi_fun(uchk - hchk))/(2*hchk);
+    relerr = max(abs(dpsi2(uchk) - fdchk)./max(abs(fdchk), 1e-12));
+    if relerr > 1e-6
+        error("simulate:bailoPotentialCurvature", ...
+            "analytic Psi'' disagrees with the model's PotentialGradient " + ...
+            "(max rel %.3e). Zeta1 = %g. Check the preset's handle.", relerr, zeta1CH);
+    end
+    % POROSITY WEIGHTS. Shin's diffusionMobility carries
+    %   -(stencil .* porosityBoundaries(2:n0)) ./ porosityCenters(rows)
+    % i.e. the conservative form (1/eps_i) d_z(eps * lambda * d_z mu). Bailo's
+    % operators were built with NO porosity, which is invisible in the supernatant
+    % (eps ~ 1) but wrong by up to 2.5x across the roughness layer at z = 0, where
+    % eps falls 1 -> 0.4 -- and that is exactly where material accumulates. It is
+    % why the free-running Bailo state reached 1e3 while upwinded Shin stayed at
+    % 0.145 under identical conditions.
+    epsC = computePorosity(filter, filter.GridPoints.Centers(1:n0b));
+    epsF = computePorosity(filter, filter.GridPoints.Boundaries(2:n0b));
+    bailoOps = struct("Lap", Lb/dzb^2, ...
+        "Dface", spdiags([-emb, emb], [0 1], n0b-1, n0b)/dzb, ...
+        "Div",   spdiags(1./epsC(:), 0, n0b, n0b) * ...
+        spdiags([-eb, eb], [-1 0], n0b, n0b-1)/dzb, ...
+        "epsFace", epsF(:), ...
+        "Iden",  speye(n0b), "rows", rrb, ...
+        "Ji", [rrb; rrb], "Jj", [rrb; rrb+1], ...   % fixed Jacobian sparsity
+        "dpsi2", dpsi2);
+end
+zeta_0 = model.CohesionSubModel.Zeta0;
+mobility = model.CohesionSubModel.MobilityFunction;
+
+% assumption 1: all components (of the same type) have the same density
+densityP = mean(densityP);
+densityL = mean(densityL);
+%========================================================%
+
+%=================== III. INITIAL CONDITIONS ======================%
+startingConditions = obj;
+timeStart = obj.Time;
+
+globalBiofilm = startingConditions.GlobalConcentrationBiofilm;
+globalFlowing = startingConditions.GlobalConcentrationFlowing;
+phiW = startingConditions.EnclosedWaterVolume;
+velBiofilm = startingConditions.Velocity.Biofilm;
+
+% compute initial vf based on initial vb and phib(Cb,phiWe)
+phiBiofilm = phiW + sum(globalBiofilm(:,1:kP),2)/densityP ...
+    + sum(globalBiofilm(:,kP+1:kP+kP),2)/densityP ...
+    + sum(globalBiofilm(:,kP+kP+1:kP+kP+kL),2)/densityL;
+phiBiofilmBoundaries = .5*(phiBiofilm(2:end) + phiBiofilm(1:end-1));
+velFlowing = [volumeAvgVelocity(1); (volumeAvgVelocity(2:end-1) - velBiofilm.*phiBiofilmBoundaries)./(1 - phiBiofilmBoundaries); volumeAvgVelocity(end)];
+%=========================================================================%
+
+%=================== IV. PRE-ALLOCATION ======================%
+% ---------- GENERAL VARIABLES --------------%
+timeFrames = zeros(numFrames,1);
+concFramesBiofilm = zeros(length(depthCenters),numFrames, kP + kP + kL);
+concFramesWater = zeros(length(depthCenters),numFrames, 1);
+concFramesFlowing = zeros(length(depthCenters),numFrames, kP + kL);
+[velFramesBiofilm, velFramesFlowing] = deal(zeros(length(depthCenters)-1,numFrames,1));
+
+% ---------- LIMITATION DIAGNOSTIC (opt-in) --------------%
+% Allocated only when requested. uint8 for the argmin, single for the values:
+% ~13 MB for a 100-cell/2160-frame/6-reaction run.
+if parameters.TrackCFL
+    cflBudget = struct( ...
+        "Steps", 0, "CapBound", 0, ...          % dt pinned to AdaptiveMaxTimeStep, not the CFL
+        "RegionWins", zeros(1,5), ...           % argmax over [matrix, encP, encL, flowP, flowL]
+        "TermSums", zeros(1,4), ...             % share of w_v/dz, w_a/dz^2, w_b, w_s in that region
+        "XSum", 0, "XMin", Inf, "XMax", 0, ...  % dt_CFL(advective v_b only) / dt_CFL(actual)
+        "VbCohSum", 0, "VbCohMax", 0, ...       % cohesive share of max|v_b|
+        "RegionShareSum", zeros(1,5), ...       % mean total(region)/max(total): the MARGIN
+        "RegionShareMax", zeros(1,5), ...       % worst-case approach of each region
+        "MatrixShareNoCoh", 0, ...              % same for region 1 with cohesion removed
+        "WsP50Sum", 0, "WsP90Sum", 0, "WsP99Sum", 0, ...   % spread of w_s ACROSS CELLS
+        "WsCellMaxSum", 0, "WsBoundSum", 0, ...  % per-cell max vs the bound actually used
+        "WsConcSum", 0, "WsConcMax", 0, "WsConcN", 0);  % max/median: few cells setting dt?
+    phibCHFrames = nan(filter.GridZero, numFrames);
+    % Free-running CH state: seeded once from phi_b, then advanced by Solver A
+    % alone and NEVER re-seeded from Solver B. phibCHFrames above is re-seeded
+    % every step, so it can only ever show a one-step (O(dt)) difference; this
+    % one accumulates, which is what the component-elimination design actually
+    % depends on -- there Solver A's phi_b becomes authoritative for the whole run.
+    phibParFrames = nan(filter.GridZero, numFrames);
+    % PROTOTYPE (diagnostic, changes nothing): Solver A's u-row rewritten as the
+    % EXACT flux Solver B uses -- same upwind form, same v_b, same porosity
+    % weights, and explicit in the transported quantity, because Solver B is too
+    % (it advects globalBiofilm at time n with velBiofilm at n+1).
+    %
+    % If the sum argument holds discretely, this must reproduce Solver B's
+    % component sum to ROUNDOFF: every biofilm-phase component shares v_b, so they
+    % share the upwind direction, and phi_b is a linear combination of them.
+    uMatchedPrev = [];  matchDiag = struct("maxAbs", 0, "maxRel", 0, "n", 0);
+    % ELIMINATION CHECK. Reconstruct the LARGEST biofilm component -- enclosed
+    % water -- from Solver A's phi_b and the other components, and compare against
+    % the one Solver B actually transported:
+    %   phi_b = phiW + sum(X_mat)/rho_P + sum(X_enc)/rho_P + sum(S_enc)/rho_L
+    %   phiW_recon = phi_b(Solver A) - [the rest, from Solver B]
+    % Enclosed water because the reconstructed component absorbs all the error and
+    % its RELATIVE error is smallest when it is the largest term; never PAT, which
+    % is the smallest and the manuscript's headline output.
+    reconDiag = struct("maxAbs", 0, "maxRelDomain", 0, "n", 0, "wScale", 0);
+    uPar = [];
+    parDiag = struct("tSeed", NaN, "tFirstNeg", NaN, "tFirstAbove1", NaN, "tFirstNaN", NaN, ...
+        "minSeen", Inf, "maxSeen", -Inf, "dead", false);
+end
+
+%========================================================%
+
+%=================== V. OUTPUT RESULTS ======================%
+results =  mpcssf.Results(filter, model);
+results.TimeStart = timeStart;
+results.SimulationData.time_final_intended = timeStart + simulationTime;
+results.SimulationData.time = timeStart;
+results.Flag = "OK";
+% Provenance: the exact solver configuration this run used. Everything a reader
+% needs to reproduce it, carried with the data rather than in a filename.
+results.SolverOptions = options;
+
+timeSnap = linspace(timeStart,timeStart + simulationTime,numFrames);
+counter = 1;
+timeFrames(counter) = timeStart;
+concFramesBiofilm(:,counter,:) = globalBiofilm;
+concFramesWater(:,counter,:) = densityL*phiW;
+concFramesFlowing(:,counter,:) = globalFlowing;
+
+velFramesBiofilm(:,counter,:) = velBiofilm;
+velFramesFlowing(:,counter,:) = velFlowing(2:end-1);
+
+counter = counter + 1;
+%=========================================================================%
+
+%=============== VI. TIME INTEGRATION ====================================%
+% Time-stepping mode: a numeric TimeStep is a fixed dt; TimeStep="adaptive"
+% recomputes dt each step from a per-step CFL bound (ported from
+% slow-sand-filtration @SDfilter/run_biofilm.m).
+if isnumeric(timeStep)
+    adaptivity = "fixed";
+    dt = timeStep;
+    results.SimulationData.TimeStep = dt;
+else
+    adaptivity = "adaptive";
+    dt = options.AdaptiveInitialTimeStep;
+    results.SimulationData.TimeStep = "adaptive";
+end
+cflFactor = options.CFLFactor;
+adaptiveVelocityFactor = options.AdaptiveVelocityFactor;
+adaptiveTimeTolerance = options.AdaptiveTimeTolerance;
+adaptiveMaxDt = options.AdaptiveMaxTimeStep;
+
+% CFL constants (Lund-structured model assumption; see the arguments block).
+alphaP = alpha(1);
+alphaL = alpha(kP + 1);
+% liquid half-saturation constants for the two growth reactions; absent -> inf
+% so the corresponding 1/(S+K) contribution vanishes.
+halfSatLiquids = model.HalfSaturationConstants(kP+1:kP+kL, :);
+% Guarded for non-Lund models with < 2 reactions (constants only feed the
+% adaptive CFL bound; fixed-step runs never read them).
+[K_HetGrowth, K_PhoGrowth] = deal(inf(kL, 1));
+if size(halfSatLiquids, 2) >= 1, K_HetGrowth = halfSatLiquids(:, 1); end
+if size(halfSatLiquids, 2) >= 2, K_PhoGrowth = halfSatLiquids(:, 2); end
+K_HetGrowth(isnan(K_HetGrowth)) = inf;
+K_PhoGrowth(isnan(K_PhoGrowth)) = inf;
+K_CFL = [K_HetGrowth, K_PhoGrowth];
+% hydrolysis quotient (POM/HET) half-saturation constant
+if isempty(quotientK)
+    K_Hyd = inf;
+else
+    K_Hyd = max(quotientK(:));
+end
+
+t = timeStart;
+% Use the Model method (arrayfun over reactions); calling
+% model.Reactions.computeRate(...) on the reaction array returns only the first
+% reaction's rate, which is wrong whenever rates differ between reactions.
+muRates = reshape(model.computeReactionRates(temperature), 1, []);
+lightOptimal = max([model.Reactions.OptimalLightFactor]);
+if isempty(lightOptimal) || lightOptimal <= 0
+    lightOptimal = 1.0;   % inhibited-only models: keep the normalization finite
+end
+lightInhibition = [model.Reactions.LightInhibition];
+inhibitionDependency = lightInhibition > 0;
+complementDependency = [model.Reactions.IsLightComplement];
+if any((inhibitionDependency + [model.Reactions.IsLightDependent] + complementDependency) > 1)
+    error("light modes (dependent/inhibited/complement) are mutually exclusive");
+end
+attenuationParticles = [model.Particles.Attenuation];
+
+minimumLight = [model.Reactions.MinimumLightFactor];
+lightDependency = [model.Reactions.IsLightDependent];
+minimumLight = minimumLight(lightDependency);
+lightFactor = ones(length(filter.GridPoints.Centers), length(model.Reactions));
+
+% Per-reaction phase efficiencies (1 x nRx, default 1.0). EfficiencyFlowing is
+% the general form of the pathogen model's water_factor (every reaction inert in
+% the flowing phase except bacterivory, scaled there by water_factor);
+% EfficiencyBiofilm scales the biofilm/enclosed phases. Mirrors
+% SSF.jl's simulate.
+efficiencyBiofilm = reshape([model.Reactions.EfficiencyBiofilm], 1, []);
+efficiencyFlowing = reshape([model.Reactions.EfficiencyFlowing], 1, []);
+
+if isnumeric(inflowConcentrations)
+    globalConcInflow = [inflowConcentrations(:)].';
+end
+if say, disp("Starting simulation..."); end
+while t < timeStart + simulationTime
+    if isa(inflowConcentrations, 'function_handle')
+        globalConcInflow = inflowConcentrations(t);
+    end
+
+    % ============= I. MAIN: computing state variables ================%
+    %% GLOBAL CONCENTRATIONS
+    % MATRIX
+    globalMatrix = globalBiofilm(:, 1:kP);
+    % ENCLOSED REGION
+    globalEnclosedP = globalBiofilm(:, kP+1:kP+kP);
+    globalEnclosedL = globalBiofilm(:, kP+kP+1:kP+kP+kL);
+    % FLOWING REGION
+    globalFlowingP = globalFlowing(:, 1:kP);
+    globalFlowingL = globalFlowing(:, kP+1:kP+kL);
+
+    %% VOLUME FRACTIONS
+    phiMatrix = sum(globalMatrix,2)/densityP;
+    phiEnclosed = phiW + sum(globalEnclosedP,2)/densityP + sum(globalEnclosedL,2)/densityL;
+    phiBiofilm = phiMatrix + phiEnclosed;
+    phiFlowing = 1 - phiBiofilm;
+
+    % %============= CHECK FOR filter CLOGGING =========================%
+    problemCellClogging = find(phiBiofilm > parameters.CloggingFraction, 1);
+    if ~isempty(problemCellClogging)
+        warning('Clogged! %.0f%% biofilm!\nT = %f\nCELL = %i', 100*max(phiBiofilm), t, problemCellClogging - n0)
+        results.Flag = "CLOGGED";
+        results.SimulationData.error.description = "Biofilm volume fraction has surpassed clogging value.";
+        results.SimulationData.error.problem_cells = problemCellClogging;
+        results.SimulationData.error.time = t;
+        break;
+    end
+    % %================================================================%
+
+    %% LOCAL CONCENTRATIONS
+    localBiofilmX = globalMatrix./(phiBiofilm + realmin);
+    % localBiofilmX(isnan(localBiofilmX)) = 0;
+    localBiofilmS = globalEnclosedL./(phiBiofilm + realmin);
+    % localBiofilmS(isnan(localBiofilmS)) = 0;
+    localBiofilmXS = [localBiofilmX, localBiofilmS];
+    localBiofilmQuotients = localBiofilmXS(:, quotientNumIdx) ./ (localBiofilmXS(:, quotientDenIdx) + realmin);
+    localBiofilm = [localBiofilmXS, localBiofilmQuotients];
+
+    localEnclosedX = globalEnclosedP./(phiEnclosed + realmin);
+    % localEnclosedX(isnan(localEnclosedX)) = 0;
+    localEnclosedS = globalEnclosedL./(phiEnclosed + realmin);
+    % localEnclosedS(isnan(localEnclosedS)) = 0;
+    localEnclosedXS = [localEnclosedX, localEnclosedS];
+    localEnclosedQuotients = localEnclosedXS(:, quotientNumIdx) ./ (localEnclosedXS(:, quotientDenIdx) + realmin);
+    localEnclosed = [localEnclosedXS, localEnclosedQuotients];
+
+    localFlowingX = globalFlowingP./phiFlowing;
+    localFlowingS = globalFlowingL./phiFlowing;
+    localFlowingXS = [localFlowingX, localFlowingS];
+    localFlowingQuotients = localFlowingXS(:, quotientNumIdx) ./ (localFlowingXS(:, quotientDenIdx) + realmin);
+    localFlowing = [localFlowingXS, localFlowingQuotients];
+
+    %% ATTACHMENT RATES (likelihood based on available volume)
+    attachmentEnclosedFactor = phiMatrix./phiBiofilm;
+    attachmentEnclosedFactor(isnan(attachmentEnclosedFactor)) = 0;
+    attachmentFlowingFactor = (1 - porosityCenters) + porosityCenters.*phiBiofilm;
+
+    %================= III. MAIN: compute reaction terms ===============================================%
+    %% REACTION TERMS
+    % LIGHT IRRADIATION
+    globalParticles = globalMatrix + globalEnclosedP + globalFlowingP;
+    etaParticles = cumsum(sum(attenuationParticles .* globalParticles, 2))*dz;
+    eta = etaWater + etaSand + etaParticles;
+
+    light = filter.LightIrradiation(t);
+    lightAttenuated = light * exp(-eta) / lightOptimal;
+    lightEffective = lightAttenuated.*exp(1 - lightAttenuated);
+    % Dark-respiration FLOOR (authoritative slow-sand-filtration form
+    % I = max(fdark, I_eff*e^{1-I_eff}); @SDfilter/run_biofilm.m, run_pathogen.m).
+    % Was the additive (minimumLight + lightEffective + |...|)/2 = max(0, min+eff),
+    % which double-counts the baseline at high light. MinimumLightFactor stands in
+    % for the global dark_respiration. Equal to the old form when either is 0.
+    if any(lightDependency)
+        lightFactor(:, lightDependency) = max(minimumLight, lightEffective);
+    end
+    % Dark-switch reactions (Wolf2007 r6): K/(K + I_local), same normalization
+    % as lightAttenuated.
+    for jInh = find(inhibitionDependency)
+        K = lightInhibition(jInh);
+        lightFactor(:, jInh) = K./(K + lightAttenuated);
+    end
+    % Complement reactions: 1 - Steele(I) (Steele <= 1, factor stays in [0,1])
+    % -- on in darkness, zero at optimal light.
+    for jCmp = find(complementDependency)
+        lightFactor(:, jCmp) = 1 - lightEffective;
+    end
+
+    % Phase efficiencies scale each reaction per region (defaults 1.0, so this
+    % reduces to the unscaled rates for every pre-existing preset).
+    % The Monod and limitation factors are pure functions of the local
+    % concentrations, and Frames.Concentrations holds every concentration in
+    % every phase at every frame -- so they are recovered EXACTLY by calling
+    % evaluateReactions on a frame in post-processing. Recording them during
+    % the run was removed on 2026-08-25 as redundant.
+    ecoRxBiofilm = efficiencyBiofilm.*evaluateReactions(localBiofilm, listK, phiBiofilm, muRates, lightFactor, listOrder);
+    ecoRxFlowing = efficiencyFlowing.*evaluateReactions(localFlowing, listK, phiFlowing, muRates, lightFactor, listOrder);
+    ecoRxEnclosed = efficiencyBiofilm.*evaluateReactions(localEnclosed, listK, phiEnclosed, muRates, lightFactor, listOrder);
+
+    ecoRxM = ecoRxBiofilm*sigmaParticles';
+    ecoRxPe = ecoRxEnclosed*sigmaParticles';
+    ecoRxLe = (ecoRxBiofilm + ecoRxEnclosed)*sigmaLiquids';
+    ecoRxPf = ecoRxFlowing*sigmaParticles';
+    ecoRxLf = ecoRxFlowing*sigmaLiquids';
+
+    attE = attachmentEnclosedFactor.*globalEnclosedP.*attachMatrixRates;
+    % Flowing attachment splits into a bare-sand term, carrying AttachmentSand,
+    % and a biofilm term, carrying AttachmentMatrix. The two rates are independent;
+    % with both equal this is the pre-2026-09-05 single-rate form.
+    % Mirrors SSF.jl's simulate. (N x 1) .* (1 x kP) -> N x kP.
+    attF = ((1 - porosityCenters).*attachSandRates ...
+            + porosityCenters.*phiBiofilm.*attachMatrixRates).*globalFlowingP;
+
+    velFlowingCenters = .5*(velFlowing(2:end) + velFlowing(1:end-1));
+    detM = model.DetachmentFunction(velFlowingCenters).*globalMatrix;
+
+    discreteFickP = localFlowingX - localEnclosedX;
+    transP = (phiEnclosed/beta).*discreteFickP.*transportParticleRates;
+    discreteFickL = localFlowingS - localEnclosedS;
+    if useFilmTransfer
+        % Coating thickness L_f = eps*phi_b/a_s (thin film on grains); mat slab
+        % above the sand. b = D/L_f^2 is the diffusion rate across the film. The
+        % pair (flowing, enclosed) relaxes at k = b(1 + phi_e/phi_f); the exact
+        % relaxation over the step replaces b by b(1 - e^{-k dt})/(k dt), so the
+        % explicit source stays stable at any b (dt here is the previous step's,
+        % like every other Solver-A-side quantity).
+        filmThickness = porosityCenters.*phiBiofilm./max(grainSurface, realmin);
+        filmThickness(grainSurface == 0) = options.MatThickness;
+        filmThickness = max(min(filmThickness, options.MatThickness), 1e-9);
+        bFilm = options.TransferDiffusivity./filmThickness.^2;
+        xRelax = bFilm.*(1 + phiEnclosed./phiFlowing)*dt;
+        bEffective = bFilm.*(-expm1(-xRelax))./max(xRelax, realmin);
+        bEffective(xRelax < 1e-12) = bFilm(xRelax < 1e-12);
+        transL = (phiEnclosed/beta).*discreteFickL.*bEffective;
+    else
+        transL = (phiEnclosed/beta).*discreteFickL.*transportLiquidRates;
+    end
+
+    reactionsMatrix = ecoRxM + attE + attF - detM;
+    reactionsEnclosedParticles = ecoRxPe - attE + transP;
+    reactionsEnclosedLiquids = ecoRxLe + transL;
+    reactionsFlowingParticles = ecoRxPf - attF + detM - transP;
+    reactionsFlowingLiquids = ecoRxLf - transL;
+
+    rhsBiofilm = [reactionsMatrix, reactionsEnclosedParticles, reactionsEnclosedLiquids];
+    rhsFlowing = [reactionsFlowingParticles, reactionsFlowingLiquids];
+    rhsEnclosedWater = (beta*phiBiofilm - phiEnclosed)/tau;
+    kosm = (1 - beta)/tau;
+    if options.ImplicitOsmosis
+        rhsEnclosedWaterA = rhsEnclosedWater./(1 + dt*kosm);
+    else
+        rhsEnclosedWaterA = rhsEnclosedWater;
+    end
+
+    %=================== IV. SOLVER A: compute biofilm velocity ======================%
+    rhsBiofilmVolume = sum(reactionsMatrix,2)/densityP ...
+        + sum(reactionsEnclosedParticles,2)/densityP ...
+        + sum(reactionsEnclosedLiquids,2)/densityL ...
+        + rhsEnclosedWaterA;
+    rhsBiofilmVolumeFull = rhsBiofilmVolume;      % needed for the Dirichlet ghost
+    rhsBiofilmVolume = rhsBiofilmVolume(1:n0);
+    % The detachment share of the volumetric source, kept separately because it
+    % is phi_b-PROPORTIONAL (detM = k_det(v_f).*globalMatrix). The free-running
+    % diagnostic needs to rescale it to its own state: sharing the real state's
+    % value freezes the only sink that bounds the solution, which is why uPar
+    % accumulated to 1e4 without opposition.
+    detVolume = sum(detM(1:n0, :), 2)/densityP;          % >= 0, a SINK
+
+    u = phiBiofilm(1:n0);
+    uB = .5*(u(2:end) + u(1:end-1));
+
+    lambda = zeta_0*mobility(uB);
+    if parameters.PositiveMobility, lambda = max(lambda, 0); end
+    useBailo = options.CohesionScheme == "bailo";
+    lhsCH = CH0 - dt*(S + sparse(D.Rows, D.Columns, D.Values.*(lambda).', 2*n0, 2*n0));
+    rhsCH = [u + dt*rhsBiofilmVolume(1:n0); dpsi_fun(u)];
+    if useDirichletBC
+        % Ghost value: the first bed cell. Biofilm transport is switched off below
+        % z = 0 (velBiofilm(n0:end) = 0), so that cell is advanced by reactions
+        % alone -- the degenerate ODE (32). Stepped explicitly to time n+1 to match
+        % the reference, which uses u_1^{n+1}.
+        uBed = phiBiofilm(n0+1) + dt*rhsBiofilmVolumeFull(n0+1);
+        rhsCH(n0 + n0) = rhsCH(n0 + n0) - kappaCH0*uBed/dz^2;
+    end
+
+    % solving linear system
+    if options.CohesionScheme == "matched"
+        % ---- matched scheme: Solver B's flux, applied to phi_b ---------------
+        % Upwind direction is lagged one step (velBiofilm still holds the previous
+        % step's value here) -- the same order of approximation as the mobility
+        % lag the scheme already uses.
+        vPrev = velBiofilm(1:n0-1);
+        Uup = u(1:n0-1).*(vPrev >= 0) + u(2:n0).*(vPrev < 0);   % upwind u^n at faces
+        aFac = zeta_0*(1 - uB);                                  % lagged, as before
+        wAdv = volumeAvgVelocity(2:n0);                          % advective face velocity
+        Gm = matchedOps.G;  DivE = matchedOps.DivE;
+        Bop = DivE * spdiags(Uup.*aFac, 0, n0-1, n0-1) * Gm;     % n0 x n0, tridiagonal
+        % Concatenate rather than index-assign into a sparse matrix: indexed
+        % assignment into a sparse array reallocates and is slow in a hot loop.
+        Zn = sparse(n0, n0);
+        % Block (1,2) is MINUS dt*Bop. From u^{n+1} = u^n - dt*Div_e(F) + dt*R
+        % with F = U*(w - a*(G mu)):  Div_e(F) = DivE*(U.*w) - Bop*mu, so
+        % u^{n+1} = u^n - dt*DivE*(U.*w) + dt*Bop*mu + dt*R, i.e. -dt*Bop on the
+        % left. The first version had +dt*Bop, driving the cohesive flux the wrong
+        % way: one-step error 1.64e-03 against shin's 1.08e-04, and no drift gain.
+        lhsM = CH0 - [Zn, dt*Bop; Zn, Zn];                       % block (1,2)
+        rhsM = [u - dt*(DivE*(Uup.*wAdv)) + dt*rhsBiofilmVolume(1:n0); dpsi_fun(u)];
+        xM = lhsM \ rhsM;
+        uCH = xM(1:n0);  muCH = xM(n0+1:end);
+    elseif useBailo
+        % ---- Bailo (2023) in native (0,1) form, semismooth Newton -----------
+        % Solves the SAME equation as the "shin" branch -- convection S, source
+        % rhsBiofilmVolume, potential Psi, interfacial kappa -- but with the
+        % cohesive flux written as Bailo Eq. (2.1b):
+        %     F_{i+1/2} = M(u_i,u_{i+1})(v)^+ + M(u_{i+1},u_i)(v)^-
+        %     M(x,y)    = zeta_0 (x)^+ (1-y)^+ ,   v_{i+1/2} = -(mu_{i+1}-mu_i)/dz
+        % and Psi split convex/concave, Psi_c implicit and Psi_e explicit.
+        % The (x)^+ is the whole point: it cannot go negative, so the
+        % anti-diffusion blow-up of the centred mobility is structurally excluded.
+        aSplit = 3*zeta1CH^2/4;      % convexity deficit of Psi
+        [uCH, muCH, bailoIt] = solveBailoCH(u, dt, zeta_0, kappaCH, aSplit, ...
+            dpsi_fun, S(1:n0,1:n0), rhsBiofilmVolume(1:n0), n0, bailoOps);
+        bailoIters = bailoIters + bailoIt; bailoSteps = bailoSteps + 1;
+        bailoMaxIt = max(bailoMaxIt, bailoIt);
+        % A step that hits the cap has NOT solved the implicit system -- the same
+        % silent failure that made the Picard prototype's gate tables meaningless.
+        % Count it rather than averaging it away.
+        bailoFail = bailoFail + (bailoIt >= 50);
+        bailoZero = bailoZero + (bailoIt == 0);
+    else
+        if options.ConvexSplitting
+            % Move (Psi'' + a) into block (2,1) and its explicit counterpart to
+            % the rhs. block(2,1) is currently -DD, so it becomes
+            % -(diag(Psi''+a) + DD) and row 2 of the rhs gains -(Psi''+a).*u^n.
+            cS = dpsi2CH(u) + 3*zeta1CH^2/4;
+            lhsCH(n0+1:2*n0, 1:n0) = lhsCH(n0+1:2*n0, 1:n0) - spdiags(cS, 0, n0, n0);
+            rhsCH(n0+1:2*n0) = rhsCH(n0+1:2*n0) - cS.*u;
+        end
+        xCH = lhsCH \ rhsCH;
+        uCH = xCH(1:n0);
+        muCH = xCH(n0+1:end);
+    end
+    if parameters.TrackCFL
+        % (a) Solver A's own phi_b for THIS step, normally discarded. Re-seeded
+        % from Solver B every step, so this measures local (one-step) consistency.
+        uCHrec = uCH;
+
+        % (b) The same operator run in PARALLEL, seeded once and never re-seeded.
+        % Its own state sets its own mobility, so it is a genuinely independent
+        % CH evolution. It shares the reaction source rhsBiofilmVolume, which is
+        % deliberate: the source depends on all components, not just phi_b, so it
+        % cannot be recomputed from uPar -- holding it common isolates the CH
+        % transport discretisation as the sole origin of any drift.
+        % Diagnostic only: nothing here feeds muCH, v_b, or Solver B.
+        % Seed the free-running state only once there is biofilm to evolve.
+        % Seeding at the first step takes u ~ 0 on a clean start, and with no
+        % reaction source u == 0 is an EXACT fixed point of the Bailo scheme --
+        % M(x,y) = zeta_0 (x)^+ (1-y)^+ vanishes at x = 0 and Sblk*0 = 0 -- so the
+        % source-off comparison returned min = max = 0 and measured nothing.
+        if isempty(uPar) && max(u) > 1e-3, uPar = u; parDiag.tSeed = t; end
+        if ~isempty(uPar)
+            uBpar = .5*(uPar(2:end) + uPar(1:end-1));
+            lambdaPar = zeta_0*mobility(uBpar);
+            if parameters.PositiveMobility, lambdaPar = max(lambdaPar, 0); end
+            % The free-running state must use the SAME scheme, or the diagnostic
+            % measures the wrong solver.
+            if useBailo && ~parDiag.dead
+                srcPar = selfConsistentSource(rhsBiofilmVolume(1:n0), detVolume, u, uPar);
+                uPar = solveBailoCH(uPar, dt, zeta_0, kappaCH, 3*zeta1CH^2/4, ...
+                    dpsi_fun, S(1:n0,1:n0), srcPar, n0, bailoOps);
+            end
+            lhsPar = CH0 - dt*(S + sparse(D.Rows, D.Columns, D.Values.*(lambdaPar).', 2*n0, 2*n0));
+            if ~parDiag.dead
+                % The diverging diagnostic state legitimately produces singular
+                % systems; that is the finding, not an error worth 10^7 warnings.
+                wState = warning("off", "MATLAB:nearlySingularMatrix");
+                wState2 = warning("off", "MATLAB:singularMatrix");
+                cleanupW = onCleanup(@() warning([wState wState2]));
+                if ~useBailo
+                    srcPar = selfConsistentSource(rhsBiofilmVolume(1:n0), detVolume, u, uPar);
+                    if options.CohesionScheme == "matched"
+                        % Before 2026-08-24 "matched" fell through to lhsPar, which is
+                        % built from the SHIN stencil at the line above -- so the
+                        % matched free state measured shin's operator, the exact
+                        % failure the comment above warns about. Rebuild Solver B's
+                        % flux from uPar instead. vPrev and wAdv are shared with the
+                        % real state, as S is shared by the shin and bailo branches:
+                        % the flow field is not part of the CH discretisation under
+                        % test, only the operator applied to phi_b is.
+                        vPrevPar = velBiofilm(1:n0-1);
+                        wAdvPar  = volumeAvgVelocity(2:n0);
+                        UupPar   = uPar(1:n0-1).*(vPrevPar >= 0) + uPar(2:n0).*(vPrevPar < 0);
+                        BopPar   = matchedOps.DivE ...
+                            * spdiags(UupPar.*(zeta_0*(1 - uBpar)), 0, n0-1, n0-1) ...
+                            * matchedOps.G;
+                        ZnPar    = sparse(n0, n0);
+                        xPar = (CH0 - [ZnPar, dt*BopPar; ZnPar, ZnPar]) \ ...
+                            [uPar - dt*(matchedOps.DivE*(UupPar.*wAdvPar)) + dt*srcPar; dpsi_fun(uPar)];
+                    else
+                        xPar = lhsPar \ [uPar + dt*srcPar; dpsi_fun(uPar)];
+                    end
+                    uPar = xPar(1:n0);
+                end
+                % Record WHERE it first leaves the physical range, not just how far
+                % it ends up: the failure mode is the point, since a mobility
+                % zeta_0*u(1-u) that goes negative turns diffusion into
+                % anti-diffusion and the blow-up is then self-reinforcing.
+                parDiag.minSeen = min(parDiag.minSeen, min(uPar));
+                parDiag.maxSeen = max(parDiag.maxSeen, max(uPar));
+                if isnan(parDiag.tFirstNeg)    && any(uPar < 0),  parDiag.tFirstNeg    = t; end
+                if isnan(parDiag.tFirstAbove1) && any(uPar > 1),  parDiag.tFirstAbove1 = t; end
+                % Stop once the state is unusable, not merely non-finite. Past
+                % |u| ~ 1e3 the free-running state is garbage, its Jacobian is
+                % singular to working precision, and every further Newton iteration
+                % emits a warning: one run wrote a 1.5 GB, 47-million-line log and
+                % became I/O-bound rather than compute-bound. Record the excursion,
+                % then stop solving.
+                if any(~isfinite(uPar)) || max(abs(uPar)) > 1e3
+                    if isnan(parDiag.tFirstNaN), parDiag.tFirstNaN = t; end
+                    parDiag.dead = true;
+                end
+            end
+        end   % ~isempty(uPar): the free state is not seeded until biofilm exists
+    end
+
+    % computing vb
+    % v_b handed to Solver B. Solver B applies u_upwind*v_b, so for Solver A's
+    % OWN flux to be what Solver B actually performs, the mobility factor here
+    % must match the one Solver A solved with:
+    %   shin/matched : centred (1 - uB)          -> u_up*(1-uB)
+    %   bailo        : (1 - u_downwind)^+        -> u_up*(1-u_down), i.e. exactly
+    %                  Bailo's zeta_0 (x)^+ (1-y)^+ once multiplied by u_upwind.
+    % Before 2026-08-24 every scheme exported the centred form, so Bailo solved
+    % its u-row with one mobility and exported a v_b built from another. Every
+    % previously reported Bailo number carries that inconsistency.
+    if useBailo
+        gradMu = -diff(muCH)/dz;                       % cohesive velocity at faces
+        uDown  = u(2:n0).*(gradMu >= 0) + u(1:n0-1).*(gradMu < 0);
+        velBiofilm(1:n0-1) = volumeAvgVelocity(2:n0) + zeta_0*max(1 - uDown, 0).*gradMu;
+    else
+        velBiofilm(1:n0-1) = volumeAvgVelocity(2:n0) - zeta_0*(1 - uB).*diff(muCH)/dz;
+    end
+
+    if parameters.TrackCFL
+        % --- matched-flux prototype: Solver B's discretisation applied to phi_b --
+        % Compare the PREVIOUS step's prediction against phiBiofilm now, which is
+        % Solver B's component sum at this time level.
+        if ~isempty(uMatchedPrev)
+            dM = abs(uMatchedPrev - phiBiofilm(1:n0));
+            matchDiag.maxAbs = max(matchDiag.maxAbs, max(dM));
+            matchDiag.maxRel = max(matchDiag.maxRel, ...
+                max(dM)/max(max(abs(phiBiofilm(1:n0))), realmin));
+            matchDiag.n = matchDiag.n + 1;
+        end
+        % Face fluxes on 1..n0. velBiofilm(n0:end) is zero (biofilm is immobile in
+        % the bed), so there is no outflow at z = 0 -- matching Solver B exactly.
+        vbF = velBiofilm(1:n0);
+        uFl = u;                                   % phi_b at time n, cells 1..n0
+        Fm  = zeros(n0, 1);
+        Fm(1:n0-1) = uFl(1:n0-1).*max(0, vbF(1:n0-1)) + uFl(2:n0).*min(0, vbF(1:n0-1));
+        Fl  = [0; Fm(1:n0-1)];                     % left face of each cell
+        uMatchedPrev = uFl ...
+            + (dt/dz)*(porosityBoundaries(1:n0).*Fl ...
+            - porosityBoundaries(2:n0+1).*Fm)./porosityCenters(1:n0) ...
+            + dt*rhsBiofilmVolume(1:n0);
+    end
+    %================================================================%
+    %====================== V. SOLVER B: compute concentrations =================================%
+    phiBiofilmBoundaries = .5*(phiBiofilm(2:end) + phiBiofilm(1:end-1));
+    velFlowing = [volumeAvgVelocity(1);
+        (volumeAvgVelocity(2:end-1) - velBiofilm.*phiBiofilmBoundaries)./(1 - phiBiofilmBoundaries);
+        volumeAvgVelocity(end)];
+
+    %===================== TIME ADAPTIVITY (CFL) ==========================%
+    % Per-step CFL bound, ported from slow-sand-filtration
+    % @SDfilter/run_biofilm.m. dt grows by at most (1 + tolerance) per step
+    % toward the CFL limit, capped at AdaptiveMaxTimeStep. Weights: w_v advection,
+    % w_a dispersion, w_b exchange (attach/detach/transfer/osmosis), w_s
+    % ecological source terms; one entry per region (matrix, enclosed P,
+    % enclosed L, flowing P, flowing L).
+    if adaptivity == "adaptive"
+        vbmax = (1 + adaptiveVelocityFactor)*max(abs(velBiofilm));
+        vfmax = (1 + adaptiveVelocityFactor)*max(abs(velFlowing));
+        maxPhib = max(phiBiofilm);
+        phie_f_max = max(phiEnclosed./phiFlowing);
+        det_vf = model.DetachmentFunction(velFlowingCenters);
+
+        % liquid-consumption bound from the two growth reactions (HET, PHO)
+        Xb_r = permute(localBiofilmX(:, [1 2]), [3 2 1]);   % 1 x 2 x N
+        Xe_r = permute(localEnclosedX(:, [1 2]), [3 2 1]);
+        Xf_r = permute(localFlowingX(:, [1 2]), [3 2 1]);
+        sigmaLiquidsGrowth = sigmaLiquids(:, 1:2);          % kL x 2
+        muGrowth = muRates(1:2);                            % 1 x 2
+        L_b = -sum(sigmaLiquidsGrowth.*(muGrowth.*Xb_r)./(permute(localBiofilmS, [2 3 1]) + K_CFL), 2);
+        L_e = -sum(sigmaLiquidsGrowth.*(muGrowth.*Xe_r)./(permute(localEnclosedS, [2 3 1]) + K_CFL), 2);
+        L_f = -sum(sigmaLiquidsGrowth.*(muGrowth.*Xf_r)./(permute(localFlowingS, [2 3 1]) + K_CFL), 2);
+
+        % hydrolysis quotient monod (POM/HET) per region
+        Xi_b = localBiofilmX(:,3)./(localBiofilmX(:,3) + K_Hyd*localBiofilmX(:,1)); Xi_b(isnan(Xi_b)) = 0;
+        Xi_e = localEnclosedX(:,3)./(localEnclosedX(:,3) + K_Hyd*localEnclosedX(:,1)); Xi_e(isnan(Xi_e)) = 0;
+        Xi_f = localFlowingX(:,3)./(localFlowingX(:,3) + K_Hyd*localFlowingX(:,1)); Xi_f(isnan(Xi_f)) = 0;
+
+        % death-reaction source bound (HET death rx 3, PHO death rx 4)
+        ws_t0 = max(abs(sigmaParticles(1,3))*muRates(3), abs(sigmaParticles(2,4))*muRates(4));
+
+        w_v = [2*vbmax*[1 1 1], 2*vfmax*[1 1]];
+        if options.ImplicitDispersion
+            w_a = zeros(1,5);      % solved implicitly, so out of the CFL bound
+        else
+            w_a = [0 0 0, ...
+                2*vfmax*alphaP*(1 + 1/(1 - maxPhib)), ...
+                2*vfmax*alphaL*(1 + 1/(1 - maxPhib))];
+        end
+        w_b = [max(det_vf), ...
+            max(attachMatrixRates)*max(attachmentEnclosedFactor) + max(transportParticleRates)/beta, ...
+            max([(~useFilmTransfer)*max(transportLiquidRates)/beta, ...
+            ~options.ImplicitOsmosis/tau]), ...
+            max([attachSandRates, attachMatrixRates])*max(attachmentFlowingFactor) + max(transportParticleRates)/beta*phie_f_max, ...
+            (~useFilmTransfer)*max(transportLiquidRates)/beta*phie_f_max];
+        w_s = [max(ws_t0, abs(sigmaParticles(3,5))*muRates(5)*max(Xi_b)), ...
+            max(ws_t0, abs(sigmaParticles(3,5))*muRates(5)*max(Xi_e)), ...
+            max(abs(L_b), [], 'all') + max(abs(L_e), [], 'all'), ...
+            max(ws_t0, abs(sigmaParticles(3,5))*muRates(5)*max(Xi_f)), ...
+            max(abs(L_f), [], 'all')];
+
+        dt_CFL = cflFactor/max(w_v/dz + w_a/dz^2 + w_b + w_s);
+        dt = min([dt_CFL, (1 + adaptiveTimeTolerance)*dt, adaptiveMaxDt]);
+
+        if parameters.TrackCFL
+            % 0a/0b: which region attains the max, and each term's share of it.
+            totals = w_v/dz + w_a/dz^2 + w_b + w_s;
+            [~, kReg] = max(totals);
+            terms = [w_v(kReg)/dz, w_a(kReg)/dz^2, w_b(kReg), w_s(kReg)];
+            % 0c: counterfactual with the cohesive part of v_b made implicit.
+            % velBiofilm(1:n0-1) = volumeAvgVelocity(2:n0) - zeta_0*(1-uB).*diff(muCH)/dz,
+            % so removing cohesion leaves the advective part alone; entries n0..end
+            % (the bed, where v_b == 0) are unchanged.
+            vbAdv = velBiofilm; vbAdv(1:n0-1) = volumeAvgVelocity(2:n0);
+            vbmaxAdv = (1 + adaptiveVelocityFactor)*max(abs(vbAdv));
+            w_v_adv = [2*vbmaxAdv*[1 1 1], 2*vfmax*[1 1]];
+            dt_CFL_adv = cflFactor/max(w_v_adv/dz + w_a/dz^2 + w_b + w_s);
+            X = dt_CFL_adv/dt_CFL;
+
+            cflBudget.Steps = cflBudget.Steps + 1;
+            cflBudget.CapBound = cflBudget.CapBound + (dt_CFL >= adaptiveMaxDt);
+            cflBudget.RegionWins(kReg) = cflBudget.RegionWins(kReg) + 1;
+            cflBudget.TermSums = cflBudget.TermSums + terms/sum(terms);
+            cflBudget.XSum = cflBudget.XSum + X;
+            cflBudget.XMin = min(cflBudget.XMin, X);
+            cflBudget.XMax = max(cflBudget.XMax, X);
+            % How close did each region come to winning? Reporting only the
+            % argmax hides whether the matrix region lost by 1% or by 100x --
+            % and that margin is what predicts finer meshes, since region 1 has
+            % no dispersion term and its cohesive part scales as zeta_0*kappa/dz^4
+            % while region 4 scales as dz^-2.
+            shares = totals/max(totals);
+            cflBudget.RegionShareSum = cflBudget.RegionShareSum + shares;
+            cflBudget.RegionShareMax = max(cflBudget.RegionShareMax, shares);
+            totalsAdv = w_v_adv/dz + w_a/dz^2 + w_b + w_s;
+            cflBudget.MatrixShareNoCoh = cflBudget.MatrixShareNoCoh ...
+                + totalsAdv(1)/max(totalsAdv);
+
+            % How concentrated is w_s across cells? The bound uses max over ALL
+            % cells and liquids, so one nearly-depleted cell can set dt for the
+            % whole domain -- L ~ 1/(S + K) with K small. If max >> median the
+            % constraint is an artefact of a few cells and could be attacked far
+            % more cheaply than by making reactions implicit.
+            LbC = reshape(max(abs(L_b), [], 1), [], 1);   % per cell, max over liquids
+            LeC = reshape(max(abs(L_e), [], 1), [], 1);
+            wsCell = LbC + LeC;                            % region-3 ecology, per cell
+            sw = sort(wsCell); nsw = numel(sw);
+            p50 = sw(max(1, round(0.50*nsw)));
+            p90 = sw(max(1, round(0.90*nsw)));
+            p99 = sw(max(1, round(0.99*nsw)));
+            wsCellMax = sw(end);
+            cflBudget.WsP50Sum = cflBudget.WsP50Sum + p50;
+            cflBudget.WsP90Sum = cflBudget.WsP90Sum + p90;
+            cflBudget.WsP99Sum = cflBudget.WsP99Sum + p99;
+            cflBudget.WsCellMaxSum = cflBudget.WsCellMaxSum + wsCellMax;
+            % w_s(3) sums two INDEPENDENT maxima (over L_b and over L_e), which
+            % may be attained in different cells, so it is >= the per-cell max.
+            % That gap is extra conservatism costing nothing to remove.
+            cflBudget.WsBoundSum = cflBudget.WsBoundSum + w_s(3);
+            % Only meaningful once the median is nonzero: at startup every cell
+            % is zero and max/p50 would be Inf, poisoning the running mean.
+            if p50 > 0
+                conc = wsCellMax/p50;
+                cflBudget.WsConcSum = cflBudget.WsConcSum + conc;
+                cflBudget.WsConcMax = max(cflBudget.WsConcMax, conc);
+                cflBudget.WsConcN   = cflBudget.WsConcN + 1;
+            end
+
+            cohShare = 1 - vbmaxAdv/max(vbmax, eps);
+            cflBudget.VbCohSum = cflBudget.VbCohSum + cohShare;
+            cflBudget.VbCohMax = max(cflBudget.VbCohMax, cohShare);
+        end
+    end
+    %======================================================================%
+
+    %%%% FLUX COMPUTING %%%%
+    % BIOFILM
+    fluxBiofilm = [
+        0*globalBiofilm(1, :);
+        globalBiofilm(1:end-1, :).*max(0, velBiofilm) ...
+        + globalBiofilm(2:end, :).*min(0, velBiofilm);
+        0*globalBiofilm(end, :)
+        ];
+    fluxBiofilmIn = porosityBoundaries(1:end-1).*fluxBiofilm(1:end-1, :);
+    fluxBiofilmOut = porosityBoundaries(2:end).*fluxBiofilm(2:end, :);
+
+    % FLOWING SUSPENSION
+    localFlowingGradient = diff(localFlowingXS(1:end-1, :));
+    dispersionStrength = abs(velFlowing(2:end-2)).*(1 - phiBiofilmBoundaries(1:end-1));
+    dispersionFlux = [
+        0*globalFlowing(1, :);
+        (dispersionStrength.*localFlowingGradient.*alpha) / dz;
+        0*globalFlowing(end-1, :);
+        0*globalFlowing(end, :)
+        ];
+
+    convectionFlux = [
+        volumeAvgVelocity(1)*globalConcInflow;
+        globalFlowing(1:end-1, :).*max(0, velFlowing(2:end-1)) ...
+        + globalFlowing(2:end, :).*min(0, velFlowing(2:end-1));
+        volumeAvgVelocity(end)*globalFlowing(end, :)
+        ];
+
+    if options.ImplicitDispersion
+        fluxFlowing = convectionFlux;          % dispersion applied after the update
+    else
+        fluxFlowing = convectionFlux - dispersionFlux;
+    end
+    fluxFlowingIn = porosityBoundaries(1:end-1).*fluxFlowing(1:end-1,:);
+    fluxFlowingOut = porosityBoundaries(2:end).*fluxFlowing(2:end,:);
+
+    % ENCLOSED WATER COMPONENT
+    fluxWater = [
+        0*phiW(1, :);
+        phiW(1:end-1, :).*max(0, velBiofilm) ...
+        + phiW(2:end, :).*min(0, velBiofilm);
+        0*phiW(end, :)
+        ];
+    fluxWaterIn = porosityBoundaries(1:end-1).*fluxWater(1:end-1, :);
+    fluxWaterOut = porosityBoundaries(2:end).*fluxWater(2:end, :);
+
+    %======================= VI. MAIN: update cell values =================================%
+    % ORDERING (time splitting, biofilm resolved first). The biofilm block and the
+    % enclosed water carry NO dispersion -- w_a is zero for those regions and
+    % fluxBiofilm/fluxWater are pure upwind advection -- and every source and flux
+    % for them is evaluated at time n. So both advance from time-n data alone, and
+    % phi_f^{n+1} = 1 - phiBiofilm^{n+1} is known BEFORE the flowing dispersion
+    % solve. So the flowing solve uses
+    % phi_f^{n+1} rather than the lagged phi_f^n, at no extra cost and still as 9
+    % independent tridiagonals.
+    globalBiofilm = globalBiofilm + (dt/dz)*(fluxBiofilmIn - fluxBiofilmOut)./porosityCenters + dt*rhsBiofilm;
+    if options.ImplicitOsmosis
+        rhsEnclosedWaterB = rhsEnclosedWater./(1 + dt*kosm);
+    else
+        rhsEnclosedWaterB = rhsEnclosedWater;
+    end
+    phiW = phiW + (dt/dz)*(fluxWaterIn - fluxWaterOut)./porosityCenters + dt*rhsEnclosedWaterB;
+
+    if parameters.TrackCFL
+        % Both sides are now at n+1: uCH from Solver A this step, the components
+        % just advanced by Solver B.
+        othersRecon = sum(globalBiofilm(1:n0, 1:kP), 2)/densityP ...
+            + sum(globalBiofilm(1:n0, kP+1:2*kP), 2)/densityP ...
+            + sum(globalBiofilm(1:n0, 2*kP+1:2*kP+kL), 2)/densityL;
+        eRec = abs((uCH - othersRecon) - phiW(1:n0));
+        reconDiag.maxAbs = max(reconDiag.maxAbs, max(eRec));
+        reconDiag.wScale = max(reconDiag.wScale, max(abs(phiW(1:n0))));
+        reconDiag.n = reconDiag.n + 1;
+    end
+
+    globalFlowing = globalFlowing + (dt/dz)*(fluxFlowingIn - fluxFlowingOut)./porosityCenters + dt*rhsFlowing;
+    if options.ImplicitDispersion
+        % phi_f at n+1, from the blocks just advanced (mirrors :337-340).
+        phiBiofilmNew = sum(globalBiofilm(:, 1:kP), 2)/densityP + phiW ...
+            + sum(globalBiofilm(:, kP+1:kP+kP), 2)/densityP ...
+            + sum(globalBiofilm(:, kP+kP+1:kP+kP+kL), 2)/densityL;
+        phiFlowingNew = 1 - phiBiofilmNew;
+        % dispersionStrength = |v_f| * (1 - phiBiofilm at faces), and that second
+        % factor IS phi_f at the faces, so it moves to n+1 too. Only |v_f| stays at
+        % time n, since it needs Solver A.
+        phiFlowingFaceNew = .5*(phiFlowingNew(2:end) + phiFlowingNew(1:end-1));
+        dispersionStrengthNew = abs(velFlowing(2:end-2)).*phiFlowingFaceNew(1:end-1);
+        globalFlowing = solveImplicitDispersion(globalFlowing, dispersionStrengthNew, ...
+            alpha, phiFlowingNew, porosityBoundaries, porosityCenters, dz, dt);
+    end
+
+    %========== CHECK IF CONCENTRATIONS ARE NEGATIVE ============%
+    % Underflow floor: a sink acting on an exactly-zero pool (r6 consuming PG
+    % before any is stored; POM hydrolysis) leaves O(realmin) negatives from
+    % the Monod regularizer that would trip the strict guard below. Clamp only
+    % denormal-scale negatives; genuine instabilities overshoot far beyond -1e-20.
+    globalBiofilm(globalBiofilm < 0 & globalBiofilm > -1e-20) = 0;
+    globalFlowing(globalFlowing < 0 & globalFlowing > -1e-20) = 0;
+    problemCellBiofilm = find(globalBiofilm(:) < 0 | isnan(globalBiofilm(:)));
+    if ~isempty(problemCellBiofilm)
+        [pRow, pCol] = ind2sub(size(globalBiofilm), problemCellBiofilm(1));
+        fprintf('Unphysical concentration in biofilm. \nTIME = %e\nCELL = %d (z = %g), STATE COLUMN = %d, VALUE = %e\n', ...
+            t, pRow, depthCenters(pRow), pCol, globalBiofilm(pRow, pCol))
+
+        results.Flag = "BIOFILM";
+        results.SimulationData.error.description = "Concentration in biofilm volume has reached unphysical values.";
+        results.SimulationData.error.problem_cells = problemCellBiofilm;
+        results.SimulationData.error.time = t;
+        break;
+    end
+
+    problemCellFlowing = mod(find(globalFlowing(:) < 0 | isnan(globalFlowing(:))), size(globalFlowing, 1));
+    if ~isempty(problemCellFlowing)
+        fprintf('Unphysical concentration in flowing suspension. \nTIME = %e\n',t)
+        fprintf("CELL = %i\n", problemCellFlowing(1) - n0)
+        fprintf("HEIGHT = %i\n", depthCenters(problemCellFlowing(1)));
+        results.Flag = "BIOFILM";
+        results.SimulationData.error.description = "Concentration in flowing volume has reached unphysical values.";
+        results.SimulationData.error.problem_cells = problemCellFlowing;
+        results.SimulationData.error.time = t;
+        break;
+    end
+    %===========================================================%
+
+    % NEXT STEP
+    t = t + dt;
+    results.SimulationData.time(end+1) = t;
+
+    %============ SAVING FRAMES ================================%
+    if t >= timeSnap(counter)
+        timeFrames(counter) = t;
+
+        concFramesBiofilm(:, counter, :) = globalBiofilm;
+        concFramesFlowing(:, counter, :) = globalFlowing;
+        concFramesWater(:, counter, :) = densityL*phiW;
+
+        velFramesBiofilm(:, counter, :) = velBiofilm;
+        velFramesFlowing(:, counter, :) = velFlowing(2:end-1);
+
+        if parameters.TrackCFL
+            phibCHFrames(:, counter) = uCHrec;
+            % uPar is empty until the free state is seeded (max(u) > 1e-3). Frames
+            % written before that leave NaN, which the consumers already skip.
+            % Only shows with fine frame sampling: at FrameNumber=12 the first
+            % frame lands at 0.25 d, after the 0.123 d seed, so this was invisible.
+            if ~isempty(uPar), phibParFrames(:, counter) = uPar; end
+        end
+
+        counter = counter + 1;
+        if ~isempty(progressFcn)
+            progressFcn(t, (t - timeStart)/simulationTime);
+        elseif say
+            fprintf("t = %.4e\n", t);
+        end
+        if ~isempty(cancelFcn) && cancelFcn()
+            results.Flag = "CANCELLED";
+            break;
+        end
+    end
+    %==========================================================%
+end
+if say, disp("Simulation ended."); disp("Saving results..."); end
+
+%====================== VII. OUTPUTS ===================%
+results.Frames.Time = timeFrames;
+
+concentrations_cell = cell(kP + kL + 1, 3);
+for j = 1:kP
+    concentrations_cell{j, 1} = concFramesBiofilm(:, :, j);
+    concentrations_cell{j, 2} = concFramesBiofilm(:, :, kP + j);
+    concentrations_cell{j, 3} = concFramesFlowing(:, :, j);
+end
+
+for j = 1:kL
+    concentrations_cell{kP + j, 1} = 0;
+    concentrations_cell{kP + j, 2} = concFramesBiofilm(:, :, kP + kP + j);
+    concentrations_cell{kP + j, 3} = concFramesFlowing(:, :, kP + j);
+end
+concentrations_cell{kP + kL + 1, 1} = 0;
+concentrations_cell{kP + kL + 1, 2} = concFramesWater;
+concentrations_cell{kP + kL + 1, 3} = Inf;
+
+results.Frames.Concentrations = cell2table(concentrations_cell,  ...
+    'VariableNames', {'Matrix',  'Enclosed',  'Flowing'},  ...
+    'rowNames', [results.Model.Particles.Name,  results.Model.Liquids.Name,  'Water'],  ...
+    'DimensionNames', {'Component', 'Volume'});
+results.Frames.Velocity.Biofilm = velFramesBiofilm;
+results.Frames.Velocity.Flowing = velFramesFlowing;
+
+if parameters.TrackCFL
+    % SimulationData is the existing home for run diagnostics (see :193-221);
+    % adding a Results property would change the class for every consumer.
+    results.SimulationData.CflBudget = cflBudget;
+    results.SimulationData.BailoNewton = struct( ...
+        "Mean", bailoIters/max(bailoSteps, 1), "Max", bailoMaxIt, ...
+        "NonConvergedFrac", bailoFail/max(bailoSteps, 1), ...
+        "ZeroIterFrac", bailoZero/max(bailoSteps, 1), "Steps", bailoSteps);
+    results.SimulationData.PhibCH = phibCHFrames;
+    results.SimulationData.PhibPar = phibParFrames;
+    results.SimulationData.PhibParDiag = parDiag;
+    results.SimulationData.MatchDiag = matchDiag;
+    reconDiag.maxRelDomain = reconDiag.maxAbs/max(reconDiag.wScale, realmin);
+    results.SimulationData.ReconDiag = reconDiag;
+end
+
+
+results.TimeFinal = t;
+if say, disp("Results saved."); end
+end
+
+function [rx, monod, lim] = evaluateReactions(local, K, phi, mu, I, orders)
+% monod = permute(min(min((local + realmin)./(K + local + realmin), [], 2), 1), [1 3 2]);
+% `lim` records which column of `local` supplied the min for each cell and
+% reaction (0 = the reaction has no Monod terms, so monod stays 1). The
+% argmin is already computed by min(); returning it costs nothing and `rx`
+% is unchanged. Column indices run over [Particles, Liquids, Quotients] --
+% see limitationNames() for the matching labels.
+monod = ones(size(phi, 1), size(mu, 2));
+lim = zeros(size(phi, 1), size(mu, 2), "uint8");
+for i = 1:size(monod, 2)
+    ii = K{1, i};
+    if any(ii)
+        k = K{2, i};
+        mon_term = (local(:, ii) + realmin)./(k + local(:, ii) + realmin);
+        [monod(:, i), j] = min(mon_term, [], 2);
+        gidx = uint8(find(ii));
+        lim(:, i) = gidx(j);
+    end
+end
+%product = permute(prod(local.^orders, 2, "omitnan"), [1 3 2]);
+product = local(:, orders);
+rx = phi.*mu.*I.*monod.*product;
+end
+
+
+
+function g = solveImplicitDispersion(g, S, alpha, phiFlowing, poroB, poroC, dz, dt)
+% Backward-Euler the flowing-phase dispersive flux.
+%
+% Explicit form being replaced (see the FLUX COMPUTING block):
+%   dispFlux_f = S_{f-1} * alpha_j * (c_f - c_{f-1}) / dz,   c = g ./ phiFlowing
+%   g <- g + (dt/dz)*(poroB_l*flux_l - poroB_r*flux_r)/poroC,  flux = conv - disp
+% so the dispersive contribution to the update is -DISP(g) with
+%   DISP(g) = (dt/dz)*(poroB_l*dispFlux_l - poroB_r*dispFlux_r)/poroC,
+% and taking it at n+1 gives (I + DISP)g^{n+1} = <explicit part>, already in g.
+%
+% Dispersion acts on the LOCAL concentration g./phiFlowing, not on g, so the
+% diag(1./phiFlowing) belongs inside the operator. phiFlowing and S are lagged,
+% which is what keeps this linear.
+%
+% Components couple through phiFlowing, which is 1 - phiBiofilm and so sums all 13
+% biofilm-block components plus enclosed water (:337-340). They decouple here only
+% because phiFlowing is supplied as a KNOWN vector -- at n+1 under the time
+% splitting, since the biofilm block carries no dispersion and is advanced first.
+% Given that, only alpha differs between components, so the operator is assembled
+% once and rescaled. Tridiagonal.
+%
+% A fully implicit variant (needed only if the biofilm block also goes implicit)
+% would couple the flowing block to 14 further unknowns per cell -- but only
+% through the SCALAR phi_f, so that coupling is rank one and is best handled by
+% carrying phi_f as one auxiliary unknown (10 per cell, not 23).
+nC = size(g, 1);
+if nC < 3, return, end
+
+% cells -> faces: face f carries -/+ S(f-1)/dz at cells f-1, f, for f = 2..nC-1.
+% Faces 1, nC, nC+1 carry no dispersive flux, matching the zero rows of
+% dispersionFlux in the explicit branch.
+f = (2:nC-1)';
+Gr = sparse([f; f], [f-1; f], [-S(:)/dz; S(:)/dz], nC+1, nC);
+
+% faces -> cells: left face i with weight poroB(i), right face i+1 with poroB(i+1)
+i = (1:nC)';
+SelL = sparse(i, i,   poroB(1:nC),   nC, nC+1);
+SelR = sparse(i, i+1, poroB(2:nC+1), nC, nC+1);
+
+Base = spdiags((dt/dz)./poroC(:), 0, nC, nC) * (SelL - SelR) * Gr * ...
+    spdiags(1./phiFlowing(:), 0, nC, nC);
+
+Id = speye(nC);
+for j = 1:size(g, 2)
+    g(:, j) = (Id + alpha(j)*Base) \ g(:, j);
+end
+end
+
+function [u1, mu, iters] = solveBailoCH(u0, dt, zeta0, kappa, aSplit, dpsi, Sblk, src, n0, ops)
+% SOLVEBAILOCH  Bailo et al. (2023) Cahn-Hilliard step, native (0,1) form.
+%
+%   (u1 - u0)/dt + (F_{i+1/2} - F_{i-1/2})/dz = S*u1 + src
+%   F_{i+1/2} = M(u_i,u_{i+1})(v)^+ + M(u_{i+1},u_i)(v)^-       Bailo (2.1b)
+%   M(x,y)    = zeta0 (x)^+ (1-y)^+                             (2.1d), mapped
+%   v_{i+1/2} = -(mu_{i+1} - mu_i)/dz                           (2.1c)
+%   mu        = Psi_c'(u1) - Psi_e'(u0) - kappa*Lap(u1)         (2.1e)
+%   Psi_c = Psi + a u^2/2,  Psi_e = a u^2/2
+%
+% VARIABLE. Bailo works on phi in [-1,1]; this is the native (0,1) form under
+% phi = 2u - 1, for which M0 = zeta0, eps^2 = kappa/4 and H(phi) = Psi((1+phi)/2).
+% Written natively so no data is ever transformed -- the factor bookkeeping in
+% that map is easy to get wrong.
+%
+% WHY THE (x)^+ MATTERS. The inherited scheme's centred mobility zeta0*u(1-u)
+% turns negative the moment u does, flipping diffusion to anti-diffusion; a
+% free-running Solver A then blows up (u<0 at t=2.15e-05 d, NaN by 0.163 d).
+% (x)^+ cannot go negative, so that mode is structurally excluded.
+%
+% CAVEAT, stated plainly: Bailo's boundedness proof assumes a pure conservation
+% law. S (convection) and src (reactions) are present here, so the proof does NOT
+% strictly transfer and bounds must be MEASURED, not assumed.
+%
+% Semismooth Newton: the residual is non-smooth through (v)^+/(v)^- and the
+% clippings, so active sets are frozen per iterate and one-sided derivatives used.
+
+TOL = 1e-10; MAXIT = 50;
+% Operators are prebuilt once per run (see bailoOps at the top): rebuilding them
+% here cost 310 us of a 462 us per-step floor at n0 = 501.
+Lap = ops.Lap;  Dface = ops.Dface;  Div = ops.Div;  Iden = ops.Iden;
+epsFace = ops.epsFace;
+Ji = ops.Ji;  Jj = ops.Jj;  dpsi2 = ops.dpsi2;
+
+w = u0;  iters = MAXIT;
+psiE = aSplit*u0;                                          % Psi_e'(u0), explicit
+for k = 1:MAXIT
+    [R, A, ~, vp, vm] = bres(w);
+    if norm(R, inf) < TOL/max(dt, realmin), iters = k-1; break, end
+    dmu  = spdiags(dpsi2(w) + aSplit, 0, n0, n0) - kappa*Lap;
+    dV   = -Dface*dmu;
+    wi = w(1:end-1); wj = w(2:end);
+    dMp_i =  zeta0*double(wi > 0).*max(1 - wj, 0);
+    dMp_j = -zeta0*max(wi, 0).*double(1 - wj > 0);
+    dMm_j =  zeta0*double(wj > 0).*max(1 - wi, 0);
+    dMm_i = -zeta0*max(wj, 0).*double(1 - wi > 0);
+    % diag(vp)*dMp + diag(vm)*dMm is bidiagonal with the SAME sparsity as either
+    % term, so combine the coefficients first and build ONE sparse matrix on the
+    % precomputed index vectors, instead of two sparse() calls plus two diagonal
+    % multiplies. Row-scaling of dV uses implicit expansion for the same reason.
+    dF  = spdiags(epsFace, 0, n0-1, n0-1) * ...
+        sparse(Ji, Jj, [vp.*dMp_i + vm.*dMm_i; vp.*dMp_j + vm.*dMm_j], n0-1, n0) ...
+        + A.*dV;      % A already carries epsFace
+    J = Iden/dt + Div*dF - Sblk;
+    d = -(J \ R);
+    lam = 1; r0 = norm(R, inf);                            % backtracking
+    for ls = 1:20
+        if norm(bres(w + lam*d), inf) < (1 - 1e-4*lam)*r0, break, end
+        lam = lam/2;
+    end
+    w = w + lam*d;
+end
+u1 = w;
+[~, ~, ~, ~, ~, mu] = bres(w);
+
+    function [R, A, vf, vp, vm, mu] = bres(v)
+        mu = dpsi(v) + aSplit*v - psiE - kappa*(Lap*v);
+        vf = -Dface*mu;
+        vp = max(vf, 0);  vm = min(vf, 0);
+        Mp = zeta0*max(v(1:end-1), 0).*max(1 - v(2:end),   0);
+        Mm = zeta0*max(v(2:end),   0).*max(1 - v(1:end-1), 0);
+        F  = epsFace.*(Mp.*vp + Mm.*vm);      % eps-weighted, as Shin's operator is
+        A  = Mp.*(vf >= 0) + Mm.*(vf < 0);
+        R  = (v - u0)/dt + Div*F - Sblk*v - src;
+    end
+
+end
+
+function src = selfConsistentSource(rhsReal, detReal, uReal, uPar) %#ok<INUSD>
+% Rescale the phi_b-proportional sink to the free-running state.
+%
+% rhsBiofilmVolume is computed from the REAL state. Growth depends on substrate,
+% not on phi_b, so sharing it is right. Detachment does not: detM scales with
+% globalMatrix and hence with phi_b, so sharing it freezes the sink at the real
+% state's value while uPar grows. That is why the free-running state accumulated
+% to ~1e4 -- the mechanism that bounds the physical solution was absent by
+% construction, so the blow-up said nothing about the scheme.
+%
+% Recover an effective rate k = detReal/uReal and reapply it at uPar. The floor
+% on uReal bounds k where there is no biofilm to detach (detReal is ~0 there too,
+% so the product stays ~0).
+% Only the "shared" behaviour was ever used: the globals are Solver B's, so the
+% source is left exactly as computed from the real state. The "detach" and
+% "full" rescalings were removed on 2026-08-25 together with the mode switch,
+% which had no callers anywhere in the repo.
+src = rhsReal;
+end
